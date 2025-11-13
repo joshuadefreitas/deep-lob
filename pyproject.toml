@@ -1,0 +1,16 @@
+[project]
+name = "deep-lob"
+version = "0.1.0"
+description = "Deep learning on limit order book data"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy",
+  "pandas",
+  "torch",
+  "pyyaml",
+]
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "src"
+]
