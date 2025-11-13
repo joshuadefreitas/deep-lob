@@ -2,25 +2,27 @@
 
 This project explores **short-horizon price prediction** using **limit order book (LOB)** data and deep learning.
 
-## 🎯 Goal
+## 🎯 Objective
 
-Build and evaluate deep learning architectures (CNNs, LSTMs, Temporal CNNs) on LOB tensors to forecast:
-- Mid-price direction
-- Short-horizon returns
-- Volatility bursts
+Forecast short-horizon mid-price movements or returns using deep models on LOB snapshots, inspired by research such as *DeepLOB*.
 
-## 🧱 Planned Components
+## 📁 Project Structure
 
-- LOB tensor construction (multi-level bid/ask snapshots)
-- PyTorch dataset & dataloader
-- CNN + LSTM / Temporal CNN models
-- GPU training & evaluation
-- Signal backtesting over very short horizons
+- `data/raw/` — raw LOB/tick data (not versioned in git)
+- `data/processed/` — cleaned & transformed tensors / parquet files
+- `notebooks/` — exploratory work and research notebooks
+- `src/deep_lob/` — production-grade Python code:
+  - `data.py` — loading & transforming LOB data
+  - `models.py` — PyTorch model architectures (CNN, CNN+LSTM, TCN)
+  - `train.py` — training loop & evaluation
+  - `config.py` — hyperparameters and paths
+- `models/` — saved model checkpoints
+- `experiments/` — logs, metrics, experiment configs
 
 ## 🛠 Tech Stack
 
 - Python, PyTorch
 - NumPy, pandas
-- (Later) vectorbt / custom backtesting engine
+- (Optionally) PyTorch Lightning / wandb for experiments
 
-This project is designed as a **flagship deep learning + microstructure** piece in my portfolio.
+The goal is a **clean, research-grade implementation** that can be extended into live trading experiments later.
