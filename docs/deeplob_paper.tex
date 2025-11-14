@@ -1,0 +1,308 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{caption}
+\usepackage{siunitx}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    citecolor=blue,
+    urlcolor=blue
+}
+
+\title{DeepLOB on Synthetic Limit Order Book Data:\\
+A Practical Study in Microstructure Prediction}
+\author{Joshua de Freitas}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Modern electronic markets generate large volumes of limit order book (LOB) data.
+Deep learning architectures such as DeepLOB have shown that it is possible to
+predict short-horizon price movements directly from sequences of LOB snapshots.
+This project implements an end-to-end DeepLOB-style pipeline on synthetic LOB
+data: simulation, tensorisation, model training, evaluation and backtesting.
+In addition to a DeepLOB architecture based on convolutional and recurrent
+modules, a Temporal Convolutional Network (TCN) is implemented and compared on
+the same dataset. The goal is not to produce a production-ready trading
+strategy, but to build a clear, inspectable framework for experimenting with
+market microstructure models.
+\end{abstract}
+
+\section{Introduction}
+
+Electronic markets operate through continuous double auctions.
+At any point in time, the state of the market is summarised by the
+\emph{limit order book} (LOB), which contains all outstanding buy (bid) and
+sell (ask) orders at discrete price levels. The book is updated whenever
+orders arrive, are cancelled or are matched into trades.
+
+Short-horizon changes in the mid-price---the average of the best bid and best
+ask---are closely tied to the dynamics of the book. Traders and market makers
+use these microstructure signals to adjust quotes, manage inventory and control
+risk. This makes the LOB an attractive input for predictive models.
+
+The aim of this project is to implement and study a DeepLOB-style architecture
+on a controlled, synthetic dataset. Rather than starting from noisy exchange
+data with many microstructure details, a simulated LOB is used to:
+\begin{itemize}
+    \item understand the full data pipeline end-to-end,
+    \item test different architectures under identical conditions, and
+    \item produce a portfolio-ready codebase that can later be extended to real data.
+\end{itemize}
+
+\section{Limit Order Book Representation}
+
+A limit order book stores, at each price level, a price and a quantity for
+both the bid and ask side. In this project, the simulated LOB exposes
+$L$ levels on each side. Each snapshot contains:
+\begin{itemize}
+    \item bid prices $(b_1, \dots, b_L)$,
+    \item bid sizes $(q^b_1, \dots, q^b_L)$,
+    \item ask prices $(a_1, \dots, a_L)$,
+    \item ask sizes $(q^a_1, \dots, q^a_L)$.
+\end{itemize}
+
+The \emph{mid-price} at time $t$ is defined as
+\begin{equation}
+    \text{mid}_t = \frac{\text{bestBid}_t + \text{bestAsk}_t}{2}.
+\end{equation}
+The predictive task is to classify the direction of the mid-price over a short
+future horizon.
+
+\subsection{Simulation}
+
+The simulator generates a synthetic mid-price process with small random shocks
+and constructs a consistent LOB around it. Spread and depth are perturbed to
+mimic varying liquidity. Each row of the simulated dataset contains the mid-price
+and a fixed number of bid/ask prices and sizes at different levels.
+
+Although stylised, this setup provides a convenient sandbox:
+the exact generative process is known, the data is clean, and experiments are
+fully reproducible.
+
+\section{From LOB Snapshots to Tensors}
+
+Deep models operate on fixed-size tensors, not on arbitrary time series.
+The project therefore converts raw LOB data into overlapping windows.
+
+\subsection{Window Construction}
+
+Let the raw dataset contain $N$ snapshots.
+For each index $t$, a window of length $T$ is constructed:
+\begin{equation}
+    X_t = \big( \mathbf{x}_{t-T+1}, \dots, \mathbf{x}_t \big),
+\end{equation}
+where each $\mathbf{x}_k \in \mathbb{R}^F$ is a feature vector derived from
+the LOB at time $k$ (prices, sizes and optionally mid-price or returns).
+
+This yields a 3D tensor:
+\[
+X \in \mathbb{R}^{N_\text{samples} \times T \times F}.
+\]
+
+\subsection{Labels}
+
+For each window ending at time $t$, the label is based on the movement of the
+mid-price over the next $H$ steps:
+\begin{equation}
+    r_t = \frac{\text{mid}_{t+H} - \text{mid}_t}{\text{mid}_t}.
+\end{equation}
+
+A simple three-class labelling is used:
+\[
+y_t =
+\begin{cases}
+    +1 & \text{if } r_t > \varepsilon, \\
+    0 & \text{if } |r_t| \le \varepsilon, \\
+    -1 & \text{if } r_t < -\varepsilon,
+\end{cases}
+\]
+for a small threshold $\varepsilon > 0$.
+
+In the synthetic dataset used here, the final tensor has shape
+$4\,891 \times 100 \times 15$ (samples $\times$ timesteps $\times$ features).
+
+\section{Model Architectures}
+
+Two architectures are implemented and trained on the same data.
+
+\subsection{DeepLOB-style Model}
+
+The DeepLOB-style model is inspired by the architecture proposed by Zhang et al.:
+\begin{itemize}
+    \item 1D convolutional layers to extract local patterns across features,
+    \item an inception-style block with multiple kernel sizes to capture
+          patterns at different temporal scales,
+    \item a recurrent layer (LSTM) to model temporal dependencies, and
+    \item a final fully connected classifier with softmax output.
+\end{itemize}
+
+Convolutions are applied along the time dimension.
+The inception module runs several convolutions with different receptive fields
+in parallel and concatenates their outputs. The LSTM then sees this enriched
+representation and produces a sequence of hidden states from which the last
+state is fed into the classifier.
+
+\subsection{Temporal Convolutional Network (TCN)}
+
+The TCN replaces the recurrent component with stacked 1D convolutions that are
+\emph{causal} (no information from the future) and \emph{dilated} (gaps between
+kernel positions). Dilated convolutions allow the receptive field to grow
+exponentially with depth, enabling the network to see far back in time with
+relatively few layers.
+
+In noisy, high-frequency environments, TCNs often train more easily than
+recurrent networks and can capture long-range dependencies with fewer
+parameters.
+
+\section{Training and Evaluation}
+
+The dataset is split into training and validation subsets (80\% / 20\%).
+Models are trained with cross-entropy loss and the Adam optimiser. The primary
+classification metrics are overall accuracy and macro-averaged F1 score.
+
+\subsection{Classification Results}
+
+Table~\ref{tab:clf} reports validation accuracy and macro F1 for both models
+on the synthetic dataset.
+
+\begin{table}[h!]
+    \centering
+    \caption{Classification performance on synthetic LOB data.}
+    \label{tab:clf}
+    \begin{tabular}{lcc}
+        \toprule
+        Model & Accuracy & Macro F1 \\
+        \midrule
+        DeepLOB & 0.6263 & 0.6264 \\
+        TCN     & 0.6444 & 0.6518 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Per-class metrics for the TCN show that the model balances all three classes
+reasonably well.
+
+\begin{table}[h!]
+    \centering
+    \caption{TCN per-class performance.}
+    \label{tab:perclass}
+    \begin{tabular}{lcccc}
+        \toprule
+        Class & Precision & Recall & F1 & Support \\
+        \midrule
+        $-1$ (down) & 0.731 & 0.653 & 0.690 & 1\,581 \\
+        $0$ (flat)  & 0.563 & 0.576 & 0.569 & 1\,899 \\
+        $+1$ (up)   & 0.669 & 0.726 & 0.696 & 1\,411 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\section{Backtesting}
+
+To move beyond pure classification metrics, a simple trading rule is applied:
+
+\begin{itemize}
+    \item If the model predicts \emph{up}, take a long position.
+    \item If the model predicts \emph{down}, take a short position.
+    \item If the model predicts \emph{flat}, stay in cash.
+\end{itemize}
+
+Returns are computed from the realised mid-price movement over the prediction
+horizon. This yields a sequence of trade returns from which performance
+statistics are computed: total P\&L, average return per trade, win rate,
+Sharpe ratio and maximum drawdown.
+
+Table~\ref{tab:bt} summarises the backtest results.
+
+\begin{table}[h!]
+    \centering
+    \caption{Backtest statistics (synthetic data, naive long/short rule).}
+    \label{tab:bt}
+    \begin{tabular}{lcc}
+        \toprule
+        Metric & DeepLOB & TCN \\
+        \midrule
+        Total P\&L           & 1.7438 & 2.1585 \\
+        Avg return / trade   & 0.000357 & 0.000441 \\
+        Win rate             & 39.3\% & 52.8\% \\
+        Sharpe (per trade)   & 0.560  & 0.667 \\
+        Max drawdown         & 0.0095 & 0.0073 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+On this synthetic dataset, the TCN generates a signal that is not only
+better in terms of classification, but also yields higher simulated P\&L,
+a higher Sharpe ratio and a lower drawdown.
+
+\section{Discussion}
+
+Several lessons emerge from this experiment:
+
+\begin{itemize}
+    \item \textbf{Representation matters.}
+          The step from raw LOB snapshots to clean, well-shaped tensors is as
+          important as the model itself. The pipeline implemented here---from
+          simulation to window construction and labelling---is reusable for
+          real LOB data.
+
+    \item \textbf{DeepLOB is strong, but TCNs are competitive.}
+          Even on synthetic data, the TCN slightly outperforms the
+          DeepLOB-style architecture, both in classification metrics and
+          backtest results. This aligns with broader experience in time series
+          modelling where convolutional architectures often train faster and
+          generalise well.
+
+    \item \textbf{Accuracy is not the whole story.}
+          Two models with similar accuracy can have very different trading
+          performance. A backtesting layer is essential to understand how
+          model predictions translate into portfolio outcomes.
+
+    \item \textbf{Synthetic data is a useful training ground.}
+          Working in a controlled environment makes it easier to inspect
+          each component of the pipeline. Once the framework is stable, it
+          can be extended to real market feeds.
+\end{itemize}
+
+\section{Conclusion and Future Work}
+
+This project provides an end-to-end implementation of a DeepLOB-style system
+on synthetic LOB data, including simulation, tensorisation, model training,
+evaluation and backtesting. It demonstrates how to turn high-frequency
+microstructure data into a supervised learning problem and how to benchmark
+different deep architectures in a consistent way.
+
+Several extensions suggest themselves:
+
+\begin{itemize}
+    \item ingestion of real exchange LOB data,
+    \item more advanced architectures (TCN variants, Transformers),
+    \item regime-aware models that adapt to changing volatility,
+    \item execution-aware backtests incorporating transaction costs and latency,
+    \item integration into a broader research or trading environment.
+\end{itemize}
+
+The codebase is intentionally modular, so that each of these directions can be
+explored without rewriting the foundation.
+
+\section*{Code and Documentation}
+
+The full implementation, together with additional documentation and experiment
+artifacts, is available in the project repository:
+\begin{quote}
+\texttt{deep-lob/} (data pipeline, models, training, evaluation, backtests)\\
+\texttt{docs/deeplob\_overview.md} (technical overview)
+\end{quote}
+
+\end{document}
