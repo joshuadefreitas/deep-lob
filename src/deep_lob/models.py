@@ -95,3 +95,140 @@ class DeepLOBModel(nn.Module):
 
         logits = self.fc(last) # (B, num_classes)
         return logits
+
+class Chomp1d(nn.Module):
+    """
+    Remove extra padding on the right to keep the output length
+    equal to the input length (causal convolution).
+    """
+    def __init__(self, chomp_size: int):
+        super().__init__()
+        self.chomp_size = chomp_size
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.chomp_size == 0:
+            return x
+        return x[:, :, :-self.chomp_size].contiguous()
+
+
+class TemporalBlock(nn.Module):
+    """
+    Basic TCN block:
+    - two dilated 1D convolutions
+    - batch norm + ReLU + dropout
+    - residual connection (with 1x1 conv if channels change)
+    """
+    def __init__(
+        self,
+        n_inputs: int,
+        n_outputs: int,
+        kernel_size: int,
+        dilation: int,
+        dropout: float,
+    ):
+        super().__init__()
+        padding = (kernel_size - 1) * dilation
+
+        self.conv1 = nn.Conv1d(
+            in_channels=n_inputs,
+            out_channels=n_outputs,
+            kernel_size=kernel_size,
+            padding=padding,
+            dilation=dilation,
+        )
+        self.chomp1 = Chomp1d(padding)
+        self.bn1 = nn.BatchNorm1d(n_outputs)
+        self.relu1 = nn.ReLU()
+        self.drop1 = nn.Dropout(dropout)
+
+        self.conv2 = nn.Conv1d(
+            in_channels=n_outputs,
+            out_channels=n_outputs,
+            kernel_size=kernel_size,
+            padding=padding,
+            dilation=dilation,
+        )
+        self.chomp2 = Chomp1d(padding)
+        self.bn2 = nn.BatchNorm1d(n_outputs)
+        self.relu2 = nn.ReLU()
+        self.drop2 = nn.Dropout(dropout)
+
+        self.downsample = (
+            nn.Conv1d(n_inputs, n_outputs, kernel_size=1)
+            if n_inputs != n_outputs
+            else None
+        )
+        self.final_relu = nn.ReLU()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out = self.conv1(x)
+        out = self.chomp1(out)
+        out = self.bn1(out)
+        out = self.relu1(out)
+        out = self.drop1(out)
+
+        out = self.conv2(out)
+        out = self.chomp2(out)
+        out = self.bn2(out)
+        out = self.relu2(out)
+        out = self.drop2(out)
+
+        res = x if self.downsample is None else self.downsample(x)
+        return self.final_relu(out + res)
+
+
+class TCNBackbone(nn.Module):
+    """
+    Stack of TemporalBlocks with increasing dilation:
+    dilation = 1, 2, 4, ...
+    """
+    def __init__(
+        self,
+        num_features: int,
+        num_channels=(32, 32, 64),
+        kernel_size: int = 3,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        layers = []
+        in_ch = num_features
+        for i, out_ch in enumerate(num_channels):
+            dilation = 2 ** i
+            layers.append(
+                TemporalBlock(
+                    n_inputs=in_ch,
+                    n_outputs=out_ch,
+                    kernel_size=kernel_size,
+                    dilation=dilation,
+                    dropout=dropout,
+                )
+            )
+            in_ch = out_ch
+        self.network = nn.Sequential(*layers)
+        self.out_channels = in_ch  # last channel size
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (batch, C, T)
+        return self.network(x)
+
+
+class TCNModel(nn.Module):
+    """
+    TCN-based model for LOB data.
+
+    Input:  (batch, T, F)
+    Output: (batch, 3) logits for classes {-1, 0, 1} (mapped to {0,1,2})
+    """
+    def __init__(self, num_features: int, num_classes: int = 3):
+        super().__init__()
+        self.tcn = TCNBackbone(num_features=num_features)
+        self.global_pool = nn.AdaptiveAvgPool1d(1)
+        self.fc = nn.Linear(self.tcn.out_channels, num_classes)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (batch, T, F) -> (batch, F, T)
+        x = x.permute(0, 2, 1)
+        x = self.tcn(x)                  # (batch, C, T)
+        x = self.global_pool(x).squeeze(-1)  # (batch, C)
+        logits = self.fc(x)              # (batch, num_classes)
+        return logits

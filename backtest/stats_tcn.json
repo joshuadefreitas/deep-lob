@@ -1,0 +1,10 @@
+{
+  "n_trades": 4890,
+  "total_pnl": 2.1584854577009196,
+  "avg_return_per_trade": 0.00044140806905949175,
+  "win_rate": 0.5282208588957055,
+  "max_drawdown": 0.007288176078923625,
+  "sharpe_ratio": 0.6665964734502489,
+  "tc_bps": 1.0,
+  "slippage_bps": 0.0
+}

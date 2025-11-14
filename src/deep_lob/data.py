@@ -1,249 +1,294 @@
 """
-Data utilities for DeepLOB:
-- load LOB data from CSV
-- build sliding-window tensors
-- compute mid-price movement labels
+Data loading, feature engineering, and window construction for DeepLOB.
+
+This module handles:
+- Reading raw LOB data (CSV)
+- Engineering microstructure features
+- Building sliding-window tensors [samples, timesteps, features]
+- Generating -1 / 0 / 1 labels based on future mid-price moves
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
+from typing import Tuple
 
+import argparse
 import numpy as np
 import pandas as pd
 
 
 # -----------------------------
-# 1. Basic config / feature set
+# 1. Raw data loading
 # -----------------------------
 
-# Adjust this list if your simulator / real data has different columns
-DEFAULT_FEATURE_COLUMNS: List[str] = [
-    "mid",
-    "bid_px_1", "bid_sz_1",
-    "bid_px_2", "bid_sz_2",
-    "bid_px_3", "bid_sz_3",
-    "ask_px_1", "ask_sz_1",
-    "ask_px_2", "ask_sz_2",
-    "ask_px_3", "ask_sz_3",
-]
 
-
-@dataclass
-class WindowConfig:
-    window_size: int = 100   # number of LOB events per sample
-    horizon: int = 10        # how far ahead to look for the label
-    up_threshold: float = 0.0002   # relative move up (+0.02%)
-    down_threshold: float = 0.0002 # relative move down (-0.02%)
-    feature_columns: List[str] = None
-
-    def __post_init__(self) -> None:
-        if self.feature_columns is None:
-            self.feature_columns = DEFAULT_FEATURE_COLUMNS
-
-
-# -----------------------------
-# 2. Loading LOB data
-# -----------------------------
-
-def load_lob_csv(path: str | Path) -> pd.DataFrame:
+def load_raw_lob(path: Path) -> pd.DataFrame:
     """
-    Load a limit-order-book time series from CSV.
+    Load raw limit order book data from disk.
 
-    Assumes:
-    - each row is one event / snapshot
-    - has at least the columns in DEFAULT_FEATURE_COLUMNS
-    - index order represents time
+    Expected columns (from simulator.py):
+    - mid
+    - bid_px_1, bid_sz_1, ..., bid_px_N, bid_sz_N
+    - ask_px_1, ask_sz_1, ..., ask_px_N, ask_sz_N
+
+    Parameters
+    ----------
+    path : Path
+        Path to the raw data file.
+
+    Returns
+    -------
+    pd.DataFrame
+        Raw LOB data.
     """
-    path = Path(path)
     df = pd.read_csv(path)
-
-    # Ensure the expected columns are present
-    missing = [col for col in DEFAULT_FEATURE_COLUMNS if col not in df.columns]
-    if missing:
-        raise ValueError(f"Missing expected columns in {path}: {missing}")
-
-    # Ensure a deterministic order
-    df = df.reset_index(drop=True)
+    if "mid" not in df.columns:
+        raise ValueError("Expected a 'mid' column in the LOB data.")
     return df
 
 
 # -----------------------------
-# 3. Label computation
+# 2. Feature engineering
 # -----------------------------
 
-def compute_labels_from_mid(
-    mid: np.ndarray,
+
+def prepare_features(df: pd.DataFrame, n_levels: int = 3) -> pd.DataFrame:
+    """
+    Engineer normalized microstructure features from raw LOB.
+
+    We compute:
+    - Price levels relative to mid-price: (px - mid) / mid
+    - Volume levels normalized by global max
+    - Bid/ask spread relative to mid
+    - Bid/ask volume imbalance
+    - One-step mid-price return
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Raw LOB data with 'mid' and bid/ask levels.
+    n_levels : int, optional
+        Number of book levels per side (default: 3).
+
+    Returns
+    -------
+    pd.DataFrame
+        Engineered feature matrix with float32 columns.
+    """
+    if "mid" not in df.columns:
+        raise ValueError("prepare_features expects a 'mid' column.")
+
+    mid = df["mid"].astype("float32")
+    features = {}
+
+    # 2.1 Price features relative to mid
+    for side in ("bid", "ask"):
+        for level in range(1, n_levels + 1):
+            px_col = f"{side}_px_{level}"
+            if px_col in df.columns:
+                rel_name = f"{px_col}_rel"
+                features[rel_name] = ((df[px_col].astype("float32") - mid) / mid)
+
+    # 2.2 Volume features normalized by global max per level
+    for side in ("bid", "ask"):
+        for level in range(1, n_levels + 1):
+            sz_col = f"{side}_sz_{level}"
+            if sz_col in df.columns:
+                max_sz = df[sz_col].max()
+                if max_sz is None or max_sz == 0:
+                    max_sz = 1.0
+                norm_name = f"{sz_col}_norm"
+                features[norm_name] = df[sz_col].astype("float32") / float(max_sz)
+
+    # 2.3 Spread (best ask - best bid) relative to mid
+    if "ask_px_1" in df.columns and "bid_px_1" in df.columns:
+        spread_rel = (df["ask_px_1"].astype("float32") - df["bid_px_1"].astype("float32")) / mid
+        features["spread_rel"] = spread_rel
+
+    # 2.4 Volume imbalance across the top n_levels
+    bid_total = None
+    ask_total = None
+    for level in range(1, n_levels + 1):
+        b_col = f"bid_sz_{level}"
+        a_col = f"ask_sz_{level}"
+        if b_col in df.columns:
+            bid_total = df[b_col].astype("float32") if bid_total is None else bid_total + df[b_col].astype("float32")
+        if a_col in df.columns:
+            ask_total = df[a_col].astype("float32") if ask_total is None else ask_total + df[a_col].astype("float32")
+
+    if bid_total is not None and ask_total is not None:
+        denom = bid_total + ask_total
+        denom = denom.replace(0, 1.0)
+        features["imbalance"] = (bid_total - ask_total) / denom
+
+    # 2.5 One-step mid-price return
+    mid_ret_1 = mid.pct_change().fillna(0.0)
+    features["mid_ret_1"] = mid_ret_1
+
+    # Build DataFrame
+    feat_df = pd.DataFrame(features, index=df.index)
+    # Ensure float32 dtype
+    feat_df = feat_df.astype("float32")
+
+    return feat_df
+
+
+# -----------------------------
+# 3. Window builder + labels
+# -----------------------------
+
+
+def build_lob_windows(
+    df: pd.DataFrame,
     window_size: int,
     horizon: int,
-    up_threshold: float,
-    down_threshold: float,
-) -> np.ndarray:
-    """
-    Compute classification labels based on future mid-price movement.
-
-    For each starting index i:
-    - we take the last mid-price in the window (at i + window_size - 1)
-    - compare it to the mid-price at i + window_size - 1 + horizon
-    - assign:
-        +1 if relative change > up_threshold
-         0 if in [-down_threshold, up_threshold]
-        -1 if relative change < -down_threshold
-    """
-    n = len(mid)
-    max_start = n - window_size - horizon + 1
-    if max_start <= 0:
-        raise ValueError(
-            f"Not enough data points (n={n}) for window_size={window_size}, "
-            f"horizon={horizon}"
-        )
-
-    labels = np.zeros(max_start, dtype=np.int8)
-
-    for i in range(max_start):
-        idx_now = i + window_size - 1
-        idx_future = idx_now + horizon
-
-        p_now = mid[idx_now]
-        p_future = mid[idx_future]
-
-        if p_now <= 0:
-            rel_change = 0.0
-        else:
-            rel_change = (p_future - p_now) / p_now
-
-        if rel_change > up_threshold:
-            labels[i] = 1
-        elif rel_change < -down_threshold:
-            labels[i] = -1
-        else:
-            labels[i] = 0
-
-    return labels
-
-
-# -----------------------------
-# 4. Sliding-window tensor builder
-# -----------------------------
-
-def build_windows(
-    df: pd.DataFrame,
-    config: WindowConfig,
+    n_levels: int = 3,
+    threshold: float = 5e-4,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Build sliding-window tensors from a LOB dataframe.
+    Build sliding windows of engineered features and labels.
 
-    Returns:
-    - X: numpy array of shape (num_samples, window_size, num_features)
-    - y: numpy array of shape (num_samples,) with labels in {-1, 0, +1}
+    Each window:
+      X_t = [features at time t ... t+window_size-1]
+    Label:
+      based on mid-price move from time (t+window_size-1) to (t+window_size-1 + horizon)
+
+    We keep the label convention:
+      -1 -> mid-price down
+       0 -> flat
+       1 -> up
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Raw LOB data including 'mid'.
+    window_size : int
+        Number of timesteps per window.
+    horizon : int
+        Lookahead steps for label.
+    n_levels : int, optional
+        Number of levels for feature engineering.
+    threshold : float, optional
+        Relative return threshold to classify up / down.
+
+    Returns
+    -------
+    X : np.ndarray
+        Shape (n_samples, window_size, n_features)
+    y : np.ndarray
+        Shape (n_samples,), values in {-1, 0, 1}
     """
-    feats = df[config.feature_columns].to_numpy(dtype=np.float32)
-    mid = df["mid"].to_numpy(dtype=np.float32)
+    mid = df["mid"].astype("float32").to_numpy()
+    features = prepare_features(df, n_levels=n_levels)
+    feat_values = features.to_numpy(dtype="float32")
 
-    n, num_features = feats.shape
-    window_size = config.window_size
-    horizon = config.horizon
-
+    n = len(df)
     max_start = n - window_size - horizon + 1
     if max_start <= 0:
         raise ValueError(
-            f"Not enough rows for window_size={window_size}, horizon={horizon}, "
-            f"n={n}"
+            f"Not enough rows ({n}) for window_size={window_size} and horizon={horizon}"
         )
 
-    X = np.zeros((max_start, window_size, num_features), dtype=np.float32)
+    X_list = []
+    y_list = []
 
-    for i in range(max_start):
-        X[i] = feats[i : i + window_size, :]
+    for start in range(max_start):
+        end = start + window_size
+        last_idx = end - 1
+        future_idx = last_idx + horizon
 
-    y = compute_labels_from_mid(
-        mid=mid,
-        window_size=window_size,
-        horizon=horizon,
-        up_threshold=config.up_threshold,
-        down_threshold=config.down_threshold,
-    )
+        m_now = mid[last_idx]
+        m_fut = mid[future_idx]
+
+        ret = (m_fut - m_now) / m_now
+
+        if ret > threshold:
+            label = 1
+        elif ret < -threshold:
+            label = -1
+        else:
+            label = 0
+
+        window = feat_values[start:end, :]
+        X_list.append(window)
+        y_list.append(label)
+
+    X = np.stack(X_list, axis=0).astype("float32")
+    y = np.array(y_list, dtype=np.int8)
 
     return X, y
 
 
 # -----------------------------
-# 5. Convenience: end-to-end API
+# 4. CLI entrypoint
 # -----------------------------
 
-def lob_csv_to_tensors(
-    csv_path: str | Path,
-    config: WindowConfig,
-) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    High-level helper: load CSV, build windows, return X, y.
-    """
-    df = load_lob_csv(csv_path)
-    return build_windows(df, config)
 
-
-def save_tensors_npz(
-    X: np.ndarray,
-    y: np.ndarray,
-    out_path: str | Path,
-) -> None:
-    """
-    Save tensors in compressed .npz format.
-    """
-    out_path = Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(out_path, X=X, y=y)
-
-
-# -----------------------------
-# 6. CLI example
-# -----------------------------
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Build DeepLOB tensors from CSV.")
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Build LOB windows for DeepLOB.")
     parser.add_argument(
         "--csv",
         type=str,
         required=True,
-        help="Path to LOB CSV file (e.g., simulated or real).",
+        help="Path to raw LOB CSV (e.g. data/raw/simulated_lob.csv)",
     )
     parser.add_argument(
         "--out",
         type=str,
         required=True,
-        help="Output .npz path under data/processed/",
+        help="Output .npz file path (e.g. data/processed/lob_windows.npz)",
     )
     parser.add_argument(
         "--window-size",
         type=int,
         default=100,
-        help="Number of events per window.",
+        help="Number of timesteps per window (default: 100)",
     )
     parser.add_argument(
         "--horizon",
         type=int,
         default=10,
-        help="Prediction horizon (in events).",
+        help="Lookahead steps for label (default: 10)",
     )
+    parser.add_argument(
+        "--levels",
+        type=int,
+        default=3,
+        help="Number of order book levels per side to use (default: 3)",
+    )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=5e-4,
+        help="Relative return threshold to classify up/down (default: 5e-4)",
+    )
+
     args = parser.parse_args()
 
-    cfg = WindowConfig(
+    csv_path = Path(args.csv)
+    out_path = Path(args.out)
+
+    print(f"Loading {csv_path} ...")
+    df = load_raw_lob(csv_path)
+    print(f"Data shape: {df.shape}")
+
+    print("Building windows with engineered features ...")
+    X, y = build_lob_windows(
+        df,
         window_size=args.window_size,
         horizon=args.horizon,
+        n_levels=args.levels,
+        threshold=args.threshold,
     )
-
-    print(f"Loading {args.csv} ...")
-    df_lob = load_lob_csv(args.csv)
-    print(f"Data shape: {df_lob.shape}")
-
-    print("Building windows ...")
-    X, y = build_windows(df_lob, cfg)
     print(f"X shape: {X.shape}, y shape: {y.shape}")
+    print(f"Label distribution: { {int(v): int((y == v).sum()) for v in sorted(set(y))} }")
 
-    print(f"Saving tensors to {args.out} ...")
-    save_tensors_npz(X, y, args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Saving tensors to {out_path} ...")
+    np.savez(out_path, X=X, y=y)
     print("Done.")
+
+
+if __name__ == "__main__":
+    main()

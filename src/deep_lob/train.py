@@ -69,7 +69,6 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Using device:", device)
 
-    # Dataset & split
     ds = DeepLOBDataset("data/processed/lob_windows.npz")
     n_total = len(ds)
     n_train = int(0.8 * n_total)
