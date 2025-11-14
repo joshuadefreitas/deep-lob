@@ -132,4 +132,4 @@ With real exchange LOB feeds, this becomes a powerful applied ML framework for i
 
 ---
 
-A full overview is available in `docs/deeplob_overview.md`.
+[📘 Full Technical Overview →](./docs/deeplob_overview.md)
