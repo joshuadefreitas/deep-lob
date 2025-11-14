@@ -1,6 +1,3 @@
-<p align="center">
-  <img src="../Banner.png" width="80%" alt="DeepLOB — Market Microstructure & Deep Learning"/>
-</p>
 
 # 📉 DeepLOB  
 ### Deep Learning on Limit Order Book Data
