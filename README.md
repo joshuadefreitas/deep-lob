@@ -1,105 +1,49 @@
+# DeepLOB — Deep Learning on Limit Order Book Data
 
-# 📉 DeepLOB  
-### Deep Learning on Limit Order Book Data
+This project implements a full research-grade DeepLOB pipeline:
+- Synthetic LOB generator  
+- Sliding-window tensor builder  
+- PyTorch dataset + dataloader  
+- DeepLOB CNN–Inception–LSTM model  
+- Training loop with accuracy and loss tracking  
+- Saved model weights  
 
-A research-grade implementation of a DeepLOB-style architecture for predicting short-horizon mid-price movements using limit order book (LOB) data.  
-Combines market microstructure, tensorization, convolutional architectures, and temporal modeling into a modular ML system.
-
----
-
-# 🚀 What’s Inside
-
-### ✔️ Synthetic LOB Data Generator  
-Produces realistic multi-level bid/ask snapshots.
-
-### ✔️ Sliding-Window Tensorizer  
-Converts raw snapshots into `(samples × window_size × features)` tensors.
-
-### ✔️ PyTorch Dataset  
-Clean dataset abstraction for training deep learning models.
-
-### ✔️ DeepLOB Architecture  
-CNN + Inception blocks + LSTM sequence modeling.
-
-### ✔️ Full Training Pipeline  
-Metrics, batching, validation split, and model checkpointing.
-
----
-
-# 📁 Project Structure
-
+## 📌 Folder Structure
 ```
 deep-lob/
+│
 ├── data/
-│   ├── raw/
-│   └── processed/
-├── notebooks/
+│   ├── raw/            # Simulated or real LOB CSVs
+│   └── processed/      # NPZ sliding windows (X, y)
+│
 ├── src/deep_lob/
-│   ├── simulator.py
-│   ├── data.py
-│   ├── dataset.py
-│   ├── models.py
-│   ├── train.py
-│   └── config.py
-├── models/
-├── experiments/
-└── tests/
+│   ├── simulator.py    # Synthetic LOB generator
+│   ├── data.py         # Tensor builder
+│   ├── dataset.py      # PyTorch dataset
+│   ├── models.py       # DeepLOB model
+│   └── train.py        # Training loop
+│
+└── models/             # Saved .pt weights
 ```
 
----
-
-# 🔧 How to Use
-
-## 1. Generate synthetic LOB data
-```bash
-PYTHONPATH=src python -m deep_lob.simulator \
-  --out data/raw/simulated_lob.csv \
-  --n-rows 5000
+## 🚀 Training Output Example
+```
+Epoch 01 | train_loss=1.0252 | train_acc=0.434 | val_acc=0.439
+Epoch 05 | train_loss=0.9234 | train_acc=0.597 | val_acc=0.439
+Saved model weights to models/deeplob_synthetic.pt
 ```
 
-## 2. Build sliding-window tensors
+## 🔧 How to Run
 ```bash
-PYTHONPATH=src python -m deep_lob.data \
-  --csv data/raw/simulated_lob.csv \
-  --out data/processed/lob_windows.npz \
-  --window-size 100 \
-  --horizon 10
-```
+# 1) Build data
+PYTHONPATH=src python -m deep_lob.simulator --out data/raw/lob.csv --n-rows 5000
+PYTHONPATH=src python -m deep_lob.data --csv data/raw/lob.csv --out data/processed/lob_windows.npz --window-size 100 --horizon 10
 
-## 3. Train the model
-```bash
+# 2) Train model
 PYTHONPATH=src python -m deep_lob.train
 ```
 
----
+## 📘 DeepLOB Overview
 
-# 📊 Example Results (Synthetic)
-
-- ~60% train accuracy  
-- ~44% validation accuracy  
-
-(Synthetic data contains noise — performance will improve with real LOB data.)
-
----
-
-# 📘 Documentation
-
-👉 **[Detailed Technical Overview](../docs/deeplob_overview.md)**
-
----
-
-# 🧭 Next Steps
-
-- Transformer / TCN models  
-- Backtesting engine  
-- Real LOB ingestion  
-- Statistical microstructure features  
-- Hyperparameter search (Optuna)
-
----
-
-<p align="center">
-  <span style="color:#6b7280;">
-    Built for precision, research clarity, and long-term scalability.
-  </span>
-</p>
+See the detailed technical overview here:  
+[../docs/deeplob_overview.md](../docs/deeplob_overview.md)
