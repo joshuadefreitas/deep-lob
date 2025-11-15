@@ -8,12 +8,9 @@ import sys
 import numpy as np
 import yaml
 
-# ------------------------------------------------------------------
-# Make src/ importable so we can use deep_lob.*
-# ------------------------------------------------------------------
-ROOT = Path(__file__).resolve().parent          # /.../deep-lob
-SRC = ROOT / "src"                              # /.../deep-lob/src
-
+# --- Make src/ importable so we can use deep_lob.* ---
+ROOT = Path(__file__).resolve().parent
+SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
@@ -25,7 +22,6 @@ from deep_lob.backtest import run_backtest
 
 
 def ensure_parent(path: Path) -> None:
-    """Create parent directory for a file path if it does not exist."""
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
@@ -73,7 +69,6 @@ def run_experiment(config_path: str) -> None:
         n_levels=lob_cfg["n_levels"],
         threshold=lob_cfg["threshold"],
     )
-
     print(f"X shape: {X.shape}, y shape: {y.shape}")
     classes, counts = np.unique(y, return_counts=True)
     print("Label distribution:", {int(c): int(n) for c, n in zip(classes, counts)})
@@ -81,7 +76,7 @@ def run_experiment(config_path: str) -> None:
     np.savez(lob_npz, X=X, y=y)
     print(f"Saved windows to {lob_npz}")
 
-    # 4. Train DeepLOB baseline (uses data/processed/lob_windows.npz internally)
+    # 4. Train DeepLOB baseline (uses data/processed/lob_windows.npz)
     print("\n[Step 3] Training DeepLOB baseline model ...")
     train_deeplob()
     print(f"Expected model weights at {model_path}")
