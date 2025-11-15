@@ -1,0 +1,27 @@
+experiment_name: "h5_L100"
+
+paths:
+  raw_csv: "data/raw/simulated_lob.csv"
+  lob_npz: "data/processed/lob_windows.npz"
+  model: "models/deeplob_synthetic.pt"
+  results_dir: "results/baseline_a"
+
+simulation:
+  enabled: true
+  n_rows: 5000
+  seed: 42
+
+lob:
+  window_size: 100
+  horizon: 5
+  n_levels: 3
+  threshold: 0.0005
+
+evaluation:
+  batch_size: 256
+  device: "auto"        # "auto", "cpu", or "cuda"
+
+backtest:
+  tc_bps: 1.0           # transaction costs in basis points
+  slippage_bps: 0.0
+  device: "auto"

@@ -44,7 +44,9 @@ def run_experiment(config_path: str) -> None:
     raw_csv = Path(paths_cfg["raw_csv"])
     lob_npz = Path(paths_cfg["lob_npz"])
     model_path = Path(paths_cfg["model"])
-    results_dir = Path(paths_cfg["results_dir"])
+
+    results_root = Path(paths_cfg.get("results_root", "results"))
+    results_dir = results_root / exp_name
 
     print(f"\n=== Running experiment: {exp_name} ===")
 

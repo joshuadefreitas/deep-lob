@@ -1,0 +1,83 @@
+{
+  "experiment_name": "h10_L200",
+  "config": {
+    "experiment_name": "h10_L200",
+    "paths": {
+      "raw_csv": "data/raw/simulated_lob.csv",
+      "lob_npz": "data/processed/lob_windows.npz",
+      "model": "models/deeplob_synthetic.pt",
+      "results_dir": "results/baseline_a"
+    },
+    "simulation": {
+      "enabled": true,
+      "n_rows": 5000,
+      "seed": 42
+    },
+    "lob": {
+      "window_size": 200,
+      "horizon": 10,
+      "n_levels": 3,
+      "threshold": 0.0005
+    },
+    "evaluation": {
+      "batch_size": 256,
+      "device": "auto"
+    },
+    "backtest": {
+      "tc_bps": 1.0,
+      "slippage_bps": 0.0,
+      "device": "auto"
+    }
+  },
+  "classification_metrics": {
+    "accuracy": 0.6071801294093091,
+    "macro_f1": 0.602753735147405,
+    "per_class": {
+      "0": {
+        "precision": 0.5817524841915086,
+        "recall": 0.8288288288288288,
+        "f1": 0.683651804670913,
+        "support": 1554
+      },
+      "1": {
+        "precision": 0.5614136732329085,
+        "recall": 0.5237837837837838,
+        "f1": 0.5419463087248322,
+        "support": 1850
+      },
+      "2": {
+        "precision": 0.7661574618096357,
+        "recall": 0.4700793078586878,
+        "f1": 0.58266309204647,
+        "support": 1387
+      }
+    },
+    "confusion_matrix": [
+      [
+        1288,
+        239,
+        27
+      ],
+      [
+        709,
+        969,
+        172
+      ],
+      [
+        217,
+        518,
+        652
+      ]
+    ]
+  },
+  "backtest_stats": {
+    "n_trades": 4790,
+    "total_pnl": 1.8765898708306983,
+    "avg_return_per_trade": 0.00039177241562227496,
+    "win_rate": 0.5200417536534446,
+    "max_drawdown": 0.02093994605568905,
+    "sharpe_ratio": 0.5428764970871308,
+    "tc_bps": 1.0,
+    "slippage_bps": 0.0
+  }
+}
