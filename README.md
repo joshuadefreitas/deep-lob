@@ -1,135 +1,80 @@
-# 📘 DeepLOB – Learning Market Microstructure From Limit Order Books
+# DeepLOB
 
-Modern electronic markets are chaotic. Prices shift because thousands of tiny decisions—orders, cancellations, trades—flash in and out of the order book every second.  
-This project builds a system that **learns to predict short‑horizon mid‑price movements** directly from this order book data.
+DeepLOB is an applied research project for learning short-horizon mid-price movement from limit order book data.
 
-It includes:  
-- Synthetic LOB generator  
-- Sliding‑window tensorization  
-- PyTorch Dataset & DataLoaders  
-- DeepLOB CNN → Inception → LSTM model  
-- TCN (Temporal Convolutional Network)  
-- Evaluation & backtesting engine  
-- Architecture comparison  
+The repository keeps the full experiment visible: synthetic data generation, sliding-window construction, PyTorch models, evaluation, and a deliberately simple backtest. The goal is to study the relationship between data representation, model architecture, and signal behavior, not to claim a deployable trading strategy.
 
----
+## Pipeline
 
-## 1. Project Structure
-```
-deep-lob/
-│
-├── data/
-│   ├── raw/            # Simulated or real LOB CSV files
-│   └── processed/      # Sliding window tensors (X, y)
-│
-├── src/deep_lob/
-│   ├── simulator.py    # Synthetic LOB generator
-│   ├── data.py         # Window builder
-│   ├── dataset.py      # PyTorch dataset
-│   ├── models.py       # DeepLOB & TCN architectures
-│   ├── train.py        # DeepLOB training script
-│   ├── train_tcn.py    # TCN training script
-│   ├── evaluate.py     # Metrics + confusion matrix
-│   └── backtest.py     # Naive long/short backtester
-│
-├── reports/            # Metrics & plots
-└── backtest/           # PnL, Sharpe, equity curves
+```text
+synthetic order book
+        ↓
+windowed tensors + labels
+        ↓
+DeepLOB CNN/Inception/LSTM or TCN
+        ↓
+classification metrics
+        ↓
+simple signal backtest
 ```
 
----
+Each sample uses a 100-timestep window with 15 features. Labels represent a future mid-price move: rise, flat, or fall.
 
-## 2. How the Pipeline Works
+## Results from the committed experiment
 
-### 2.1 Data  
-Order book snapshots are generated (or loaded) and transformed into:
-```
-100 timesteps × 15 features → 1 training sample
-```
+| Model | Accuracy | Macro F1 | Sharpe | Max drawdown |
+| --- | ---: | ---: | ---: | ---: |
+| DeepLOB | 0.6263 | 0.6264 | 0.560 | 0.0095 |
+| TCN | **0.6444** | **0.6518** | **0.667** | **0.0073** |
 
-Each sample receives a label:
-- **+1** → mid‑price rises  
-- **0** → stays flat  
-- **–1** → falls  
+These figures are from synthetic data and the included backtest assumptions. They are useful for comparing this experiment's components, not evidence of live-market performance.
 
-### 2.2 Models  
-**DeepLOB** learns spatial patterns across bid/ask levels and their temporal evolution.  
-**TCN** uses dilated convolutions to extract long-range temporal patterns more efficiently.
+## Quickstart
 
----
+Python 3.11+ is required. Install the project in an isolated environment:
 
-## 3. Run the Pipeline
-
-### 3.1 Build Synthetic Data
 ```bash
-PYTHONPATH=src python -m deep_lob.simulator   --out data/raw/sim_lob.csv   --n-rows 5000
-
-PYTHONPATH=src python -m deep_lob.data   --csv data/raw/sim_lob.csv   --out data/processed/lob_windows.npz   --window-size 100   --horizon 10
+git clone https://github.com/joshuadefreitas/deep-lob.git
+cd deep-lob
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e .
+pytest
 ```
 
-### 3.2 Train DeepLOB
+Build the included synthetic dataset:
+
 ```bash
-PYTHONPATH=src python -m deep_lob.train
+PYTHONPATH=src python -m deep_lob.simulator \
+  --out data/raw/simulated_lob.csv \
+  --n-rows 5000
+
+PYTHONPATH=src python -m deep_lob.data \
+  --csv data/raw/simulated_lob.csv \
+  --out data/processed/lob_windows.npz \
+  --window-size 100 \
+  --horizon 10
 ```
 
-### 3.3 Train TCN
-```bash
-PYTHONPATH=src python -m deep_lob.train_tcn
+The training and evaluation entry points are documented in `src/deep_lob/` and in the technical overview.
+
+## Repository map
+
+```text
+src/deep_lob/       # simulator, tensorizer, models, training, evaluation, backtest
+configs/            # experiment configurations
+data/               # committed synthetic inputs and processed examples
+reports/            # metrics and diagnostic plots
+backtest/           # equity curves and summary statistics
+docs/               # technical overview and paper
+tests/              # import smoke tests
 ```
 
-### 3.4 Evaluate
-```bash
-PYTHONPATH=src python -m deep_lob.evaluate   --data data/processed/lob_windows.npz   --model models/deeplob_synthetic.pt
-```
+## Limitations
 
-### 3.5 Backtest
-```bash
-PYTHONPATH=src python -m deep_lob.backtest   --data data/processed/lob_windows.npz   --raw data/raw/sim_lob.csv   --model models/deeplob_synthetic.pt   --window-size 100   --horizon 10
-```
+- The data is synthetic rather than an exchange feed.
+- The backtest is intentionally simple and does not model realistic execution costs.
+- The experiment is not a production trading system or investment recommendation.
 
----
-
-## 4. Model Comparison — DeepLOB vs TCN
-
-### Classification Performance
-
-| Model | Accuracy | Macro F1 |
-|-------|----------|----------|
-| DeepLOB | 0.6263 | 0.6264 |
-| **TCN** | **0.6444** | **0.6518** |
-
-### Backtest Performance
-
-| Metric | DeepLOB | TCN |
-|--------|---------|------|
-| Total PnL | 1.7438 | **2.1585** |
-| Avg return/trade | 0.000357 | **0.000441** |
-| Win rate | 39.3% | **52.8%** |
-| Sharpe | 0.560 | **0.667** |
-| Max Drawdown | 0.0095 | **0.0073** |
-
-**TCN clearly extracts stronger and more stable microstructure patterns.**
-
----
-
-## 5. Why This Matters
-
-This repository forms a foundation for real quant research on:
-- market microstructure learning  
-- short‑horizon price forecasting  
-- execution & liquidity studies  
-- pattern discovery in order flow  
-
-With real exchange LOB feeds, this becomes a powerful applied ML framework for intraday modelling.
-
----
-
-## 6. Next Steps
-- Transformer‑style architectures  
-- Regime conditioning  
-- Multi‑asset LOB ingestion  
-- Execution‑aware losses  
-- Online / streaming models  
-
----
-
-[📘 Full Technical Overview →](./docs/deeplob_overview.md)
+Read the [technical overview](docs/deeplob_overview.md) for the modeling details.
