@@ -53,13 +53,15 @@ def load_raw_lob(path: Path) -> pd.DataFrame:
 # -----------------------------
 
 
-def prepare_features(df: pd.DataFrame, n_levels: int = 3) -> pd.DataFrame:
+def prepare_features(
+    df: pd.DataFrame, n_levels: int = 3, size_normalization: str = "global_max"
+) -> pd.DataFrame:
     """
     Engineer normalized microstructure features from raw LOB.
 
     We compute:
     - Price levels relative to mid-price: (px - mid) / mid
-    - Volume levels normalized by global max
+    - Volume levels, see `size_normalization`
     - Bid/ask spread relative to mid
     - Bid/ask volume imbalance
     - One-step mid-price return
@@ -70,6 +72,17 @@ def prepare_features(df: pd.DataFrame, n_levels: int = 3) -> pd.DataFrame:
         Raw LOB data with 'mid' and bid/ask levels.
     n_levels : int, optional
         Number of book levels per side (default: 3).
+    size_normalization : {"global_max", "none"}, optional
+        "global_max" (default) divides each size column by its max over the
+        *entire* input dataframe -- this is the legacy behaviour used by
+        `deep_lob.train` / `deep_lob.train_tcn` and is unchanged for
+        backwards compatibility, but it leaks val/test-row magnitudes into
+        the feature values of every row (including train rows) since the
+        max is computed before any train/val split exists. "none" leaves
+        size columns as raw, unnormalized values, so that a subsequent
+        train-only fit (e.g. `deep_lob.scaling.TrainOnlyScaler`) is the
+        only source of size-column statistics. Use "none" for the leakage
+        audit (`deep_lob.audit`).
 
     Returns
     -------
@@ -78,6 +91,10 @@ def prepare_features(df: pd.DataFrame, n_levels: int = 3) -> pd.DataFrame:
     """
     if "mid" not in df.columns:
         raise ValueError("prepare_features expects a 'mid' column.")
+    if size_normalization not in ("global_max", "none"):
+        raise ValueError(
+            f"size_normalization must be 'global_max' or 'none', got {size_normalization!r}"
+        )
 
     mid = df["mid"].astype("float32")
     features = {}
@@ -90,16 +107,20 @@ def prepare_features(df: pd.DataFrame, n_levels: int = 3) -> pd.DataFrame:
                 rel_name = f"{px_col}_rel"
                 features[rel_name] = ((df[px_col].astype("float32") - mid) / mid)
 
-    # 2.2 Volume features normalized by global max per level
+    # 2.2 Volume features, normalized by global max per level (legacy
+    # default) or left raw for a downstream train-only scaler.
     for side in ("bid", "ask"):
         for level in range(1, n_levels + 1):
             sz_col = f"{side}_sz_{level}"
             if sz_col in df.columns:
-                max_sz = df[sz_col].max()
-                if max_sz is None or max_sz == 0:
-                    max_sz = 1.0
                 norm_name = f"{sz_col}_norm"
-                features[norm_name] = df[sz_col].astype("float32") / float(max_sz)
+                if size_normalization == "global_max":
+                    max_sz = df[sz_col].max()
+                    if max_sz is None or max_sz == 0:
+                        max_sz = 1.0
+                    features[norm_name] = df[sz_col].astype("float32") / float(max_sz)
+                else:  # "none"
+                    features[norm_name] = df[sz_col].astype("float32")
 
     # 2.3 Spread (best ask - best bid) relative to mid
     if "ask_px_1" in df.columns and "bid_px_1" in df.columns:
@@ -145,6 +166,7 @@ def build_lob_windows(
     horizon: int,
     n_levels: int = 3,
     threshold: float = 5e-4,
+    size_normalization: str = "global_max",
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Build sliding windows of engineered features and labels.
@@ -171,6 +193,9 @@ def build_lob_windows(
         Number of levels for feature engineering.
     threshold : float, optional
         Relative return threshold to classify up / down.
+    size_normalization : {"global_max", "none"}, optional
+        Forwarded to `prepare_features`; see its docstring. Defaults to
+        "global_max" to keep the legacy training path unchanged.
 
     Returns
     -------
@@ -180,7 +205,7 @@ def build_lob_windows(
         Shape (n_samples,), values in {-1, 0, 1}
     """
     mid = df["mid"].astype("float32").to_numpy()
-    features = prepare_features(df, n_levels=n_levels)
+    features = prepare_features(df, n_levels=n_levels, size_normalization=size_normalization)
     feat_values = features.to_numpy(dtype="float32")
 
     n = len(df)

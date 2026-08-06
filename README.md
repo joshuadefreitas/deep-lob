@@ -1,80 +1,64 @@
-# DeepLOB
+# DeepLOB: A Limit-Order-Book Validation Study
 
-DeepLOB is an applied research project for learning short-horizon mid-price movement from limit order book data.
+An advanced, self-contained study of the data and evaluation path behind short-horizon limit-order-book modelling. It contains a synthetic order-book generator, DeepLOB and TCN implementations, and a reproducible audit of temporal leakage.
 
-The repository keeps the full experiment visible: synthetic data generation, sliding-window construction, PyTorch models, evaluation, and a deliberately simple backtest. The goal is to study the relationship between data representation, model architecture, and signal behavior, not to claim a deployable trading strategy.
+> **Current status:** the historical accuracy, PnL, and Sharpe artifacts in this repository are legacy outputs from a random split of overlapping windows with full-data normalization. They are not validated trading or alpha results. The active work is the validation study, [When Overlapping Windows Invent Predictability](docs/leakage_audit.md).
 
-## Pipeline
+## Start Here
 
-```text
-synthetic order book
-        ↓
-windowed tensors + labels
-        ↓
-DeepLOB CNN/Inception/LSTM or TCN
-        ↓
-classification metrics
-        ↓
-simple signal backtest
-```
+1. Read the [architecture](docs/architecture.md) for the code-path map.
+2. Read [data and evaluation](docs/data-and-evaluation.md) for the synthetic-data assumptions and validation protocol.
+3. Run the [leakage audit](docs/leakage_audit.md) before interpreting any model output.
+4. Consult the [documentation map](docs/README.md) for the full record.
 
-Each sample uses a 100-timestep window with 15 features. Labels represent a future mid-price move: rise, flat, or fall.
-
-## Results from the committed experiment
-
-| Model | Accuracy | Macro F1 | Sharpe | Max drawdown |
-| --- | ---: | ---: | ---: | ---: |
-| DeepLOB | 0.6263 | 0.6264 | 0.560 | 0.0095 |
-| TCN | **0.6444** | **0.6518** | **0.667** | **0.0073** |
-
-These figures are from synthetic data and the included backtest assumptions. They are useful for comparing this experiment's components, not evidence of live-market performance.
-
-## Quickstart
-
-Python 3.11+ is required. Install the project in an isolated environment:
-
-```bash
-git clone https://github.com/joshuadefreitas/deep-lob.git
-cd deep-lob
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e .
-pytest
-```
-
-Build the included synthetic dataset:
-
-```bash
-PYTHONPATH=src python -m deep_lob.simulator \
-  --out data/raw/simulated_lob.csv \
-  --n-rows 5000
-
-PYTHONPATH=src python -m deep_lob.data \
-  --csv data/raw/simulated_lob.csv \
-  --out data/processed/lob_windows.npz \
-  --window-size 100 \
-  --horizon 10
-```
-
-The training and evaluation entry points are documented in `src/deep_lob/` and in the technical overview.
-
-## Repository map
+## Five-Minute Mental Model
 
 ```text
-src/deep_lob/       # simulator, tensorizer, models, training, evaluation, backtest
-configs/            # experiment configurations
-data/               # committed synthetic inputs and processed examples
-reports/            # metrics and diagnostic plots
-backtest/           # equity curves and summary statistics
-docs/               # technical overview and paper
-tests/              # import smoke tests
+synthetic snapshots -> engineered features -> overlapping windows + labels
+                                      |                 |
+                                      |                 +-> DeepLOB / TCN (legacy path)
+                                      |
+                                      +-> temporal split + train-only scaling
+                                                   -> deterministic audit (active path)
 ```
 
-## Limitations
+The simulator deliberately has no causal link from book sizes to future price movement. That makes it useful for studying how an evaluation pipeline can create apparent predictability even when the generator does not encode it.
 
-- The data is synthetic rather than an exchange feed.
-- The backtest is intentionally simple and does not model realistic execution costs.
-- The experiment is not a production trading system or investment recommendation.
+## Repository Shape
 
-Read the [technical overview](docs/deeplob_overview.md) for the modeling details.
+```text
+src/deep_lob/
+  simulator.py     synthetic book snapshots and random-walk mid price
+  data.py          feature construction and sliding-window labels
+  models.py        DeepLOB and TCN definitions
+  train*.py        historical training paths
+  splits.py         random, chronological, and purged/embargoed protocols
+  scaling.py        train-only feature scaling
+  audit.py          deterministic leakage and signal audit
+docs/
+  architecture.md   module contracts and data flow
+  data-and-evaluation.md  assumptions and result boundaries
+  leakage_audit.md  active study protocol
+  decisions/        durable evaluation decisions
+```
+
+## Reproduce the Audit
+
+Create an isolated environment from the project metadata, then run:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e ".[test]"
+PYTHONPATH=src .venv/bin/python -m pytest -q
+PYTHONPATH=src .venv/bin/python -m deep_lob.audit --out reports/leakage_audit.json
+```
+
+The generated report is intentionally ignored by Git. It is evidence for the exact command and parameters used, not a permanent benchmark.
+
+## What This Does Not Claim
+
+- It does not establish a profitable strategy, alpha, or execution performance.
+- It does not validate DeepLOB or TCN on real exchange data.
+- It does not treat a model comparison as meaningful until it uses a documented temporal split and train-only transformations.
+
+See [docs/README.md](docs/README.md) for architecture, data, decisions, references, and legacy context.

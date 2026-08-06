@@ -42,3 +42,6 @@ Untitled.ipynb
 *.aux
 *.log
 *.out
+
+# Generated audit report (regenerate via `python -m deep_lob.audit`)
+reports/leakage_audit.json

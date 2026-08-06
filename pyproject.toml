@@ -10,6 +10,14 @@ dependencies = [
   "pyyaml",
 ]
 
+[project.optional-dependencies]
+dev = [
+  "pytest",
+]
+test = [
+  "pytest",
+]
+
 [tool.pytest.ini_options]
 pythonpath = [
   "src"
