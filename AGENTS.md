@@ -26,6 +26,36 @@ The asymmetry is the mechanism, not an accident. The verifier's inability to
 change the code is what makes verification worth anything. Do not collapse the
 roles for convenience.
 
+### Current assignment — 9 August 2026
+
+Roles are stable; providers are replaceable. This records who holds which seat
+today, so an agent can check rather than assume.
+
+| seat | held by |
+|---|---|
+| architecture, exit criteria, derivation, claims verification | Claude |
+| implementation, both streams | Codex |
+| forensic line review | DeepSeek |
+| final authority | Joshua |
+
+**One agent per unit of work, and never the same agent for building and
+reviewing it.** If Codex implements, DeepSeek reviews. If DeepSeek implements,
+Codex reviews. Claude reviews claims and derivations but does not implement and
+holds no credentials.
+
+Gemini is not in the current roster. It was removed after producing a sequence
+of confident findings that did not survive checking, the most serious being an
+allegation that committed evidence had been fabricated — which was an aggregate
+value mistaken for per-seed data — delivered alongside deletion of the
+evidence it was auditing.
+
+Two process lessons from that, which apply to any provider:
+
+- **An audit brief must say COPY, never MOVE.** Evidence is not relocated in
+  order to be checked against.
+- **A finding of misconduct is checked before it is acted on.** The more severe
+  the claim, the more cheaply it can usually be verified against the data.
+
 ### Rules of operation
 
 1. **You do not verify your own work.** Whoever wrote it does not decide whether
