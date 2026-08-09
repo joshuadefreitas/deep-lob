@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import numpy as np
 
-from run_normalisation import _paired_difference, scale_train_only
+from run_normalisation import (
+    _paired_difference,
+    _summarise_path,
+    scale_train_only,
+)
 
 
 def test_scale_train_only_fit_is_unaffected_by_validation_values() -> None:
@@ -30,3 +34,28 @@ def test_paired_ci_is_computed_from_seedwise_differences() -> None:
     assert result["mean"] == expected.mean()
     assert result["sd"] == expected.std(ddof=1)
     assert result["n_pairs"] == 3
+
+
+def test_path_summary_rejects_unpaired_scaling_seeds() -> None:
+    common = {
+        "protocol": "random_split",
+        "horizon": 5,
+        "sim_seed": 0,
+        "n_train": 8,
+        "n_val": 2,
+        "val_acc": 0.5,
+        "full_acc": 0.5,
+        "val_majority": 0.6,
+        "full_majority": 0.6,
+        "overlap_fraction": 1.0,
+    }
+    rows = [
+        {**common, "scaling": "global_max", "seed": 0},
+        {**common, "scaling": "train_only", "seed": 1},
+    ]
+
+    try:
+        _summarise_path(rows)
+        assert False, "expected RuntimeError"
+    except RuntimeError as exc:
+        assert "unpaired scaling arms" in str(exc)

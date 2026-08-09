@@ -77,8 +77,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from deep_lob.data import build_lob_windows, load_raw_lob  # noqa: E402
-from deep_lob.simulator import save_simulated_lob_csv  # noqa: E402
+from deep_lob.data import build_lob_windows  # noqa: E402
+from deep_lob.simulator import simulate_lob  # noqa: E402
 from deep_lob.splits import (  # noqa: E402
     chronological_split,
     purged_embargoed_split,
@@ -93,6 +93,7 @@ THRESHOLD = 5e-4
 TRAIN_FRAC = 0.8
 HORIZONS = (5, 10, 20)
 SPLIT_SEEDS = tuple(range(20))
+SIM_SEEDS = (0, 1, 2, 3, 4, 42)  # rule 11: state the span, and make it > 1
 
 # simulator.py: mids[t] = mids[t-1] * (1 + N(0, 0.03)/100)
 # so the per-step log return has standard deviation 0.03/100.
@@ -246,15 +247,12 @@ def main() -> None:
     out_dir = ROOT / "results" / "ceiling"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    raw_csv = ROOT / "data" / "raw" / "simulated_lob.csv"
-    if not raw_csv.exists():
-        save_simulated_lob_csv(out_path=raw_csv, n_rows=N_ROWS, seed=SIM_SEED)
-    df = load_raw_lob(raw_csv)
-
     rows: list[dict] = []
     analytics: dict[str, dict] = {}
 
-    for h in HORIZONS:
+    for sim_seed in SIM_SEEDS:
+      df = simulate_lob(n_rows=N_ROWS, seed=sim_seed)
+      for h in HORIZONS:
         X, y = build_lob_windows(
             df, window_size=WINDOW_SIZE, horizon=h, threshold=THRESHOLD
         )
@@ -262,7 +260,8 @@ def main() -> None:
         a = analytic_ceiling(h)
         a["majority_measured"] = majority_frac(y)
         a["n_windows"] = int(n)
-        analytics[f"h{h}"] = a
+        a["sim_seed"] = sim_seed
+        analytics[f"s{sim_seed}|h{h}"] = a
 
         print(
             f"h={h:<3} windows={n:<5} "
@@ -283,6 +282,7 @@ def main() -> None:
 
                 rows.append(
                     {
+                        "sim_seed": sim_seed,
                         "protocol": protocol,
                         "horizon": h,
                         "split_seed": s,
@@ -302,8 +302,8 @@ def main() -> None:
         w.writerows(rows)
 
     summary: dict = {"analytic": analytics, "empirical": {}}
-    print(f"\n{'protocol':<20}{'h':>3}{'oracle':>10}{'knn1':>10}{'ceiling':>10}{'val maj':>10}")
-    print("-" * 63)
+    print(f"\n{'protocol':<20}{'h':>3}{'oracle':>10}{'knn1':>10}{'ceiling':>10}{'val maj':>10}   (pooled over %d paths)" % len(SIM_SEEDS))
+    print("-" * 78)
     for protocol in ("random_split", "chronological", "purged_embargoed"):
         for h in HORIZONS:
             sel = [r for r in rows if r["protocol"] == protocol and r["horizon"] == h]

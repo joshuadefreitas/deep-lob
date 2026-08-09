@@ -7,11 +7,12 @@ The sweep holds the study harness fixed and changes only feature scaling:
   ``TrainOnlyScaler.fit(X[train_idx])``, and uses that fitted scaler for every
   train, validation, and full-dataset feature value.
 
-Default sweep: 3 protocols x 3 horizons x 2 scaling arms x 20 paired seeds =
-360 trained models. Results are written only after the complete sweep succeeds.
-The artifact is specific to the synthetic simulator seed 42 and CPU DeepLOB
-configuration inherited from ``run_study.py``; it makes no claim about real
-exchange data or other models.
+The default remains the original simulator-seed-42 sweep. ``--sim-seeds``
+extends the same paired design across independent generator paths, matching
+``run_study.py``. Results are written only after the complete sweep succeeds.
+The artifact is specific to the requested synthetic simulator paths and CPU
+DeepLOB configuration inherited from ``run_study.py``; it makes no claim about
+real exchange data or other models.
 """
 
 from __future__ import annotations
@@ -135,11 +136,15 @@ def run_train_only_cell(
     }
 
 
-def run_pair(protocol: str, horizon: int, seed: int, threads: int) -> list[dict[str, Any]]:
+def run_pair(
+    protocol: str, horizon: int, seed: int, threads: int, sim_seed: int = 42
+) -> list[dict[str, Any]]:
     """Run both arms, resetting every seeded RNG inside each arm."""
-    global_row = study.run_cell(protocol, horizon, seed, threads, sim_seed=42)
+    global_row = study.run_cell(protocol, horizon, seed, threads, sim_seed=sim_seed)
     global_row["scaling"] = "global_max"
-    train_only_row = run_train_only_cell(protocol, horizon, seed, threads)
+    train_only_row = run_train_only_cell(
+        protocol, horizon, seed, threads, sim_seed=sim_seed
+    )
     return [global_row, train_only_row]
 
 
@@ -172,12 +177,18 @@ def _baseline_sign(excess: float, tolerance: float = 1e-15) -> str:
     return "equal"
 
 
-def _load_study_rows(path: Path) -> dict[tuple[str, int, int], dict[str, str]]:
+def _row_key(row: dict[str, Any]) -> tuple[str, int, int, int]:
+    return (
+        row["protocol"],
+        int(row["horizon"]),
+        int(row.get("sim_seed", 42)),
+        int(row["seed"]),
+    )
+
+
+def _load_study_rows(path: Path) -> dict[tuple[str, int, int, int], dict[str, str]]:
     with path.open(newline="") as handle:
-        return {
-            (row["protocol"], int(row["horizon"]), int(row["seed"])): row
-            for row in csv.DictReader(handle)
-        }
+        return {_row_key(row): row for row in csv.DictReader(handle)}
 
 
 def compare_global_to_study(
@@ -186,9 +197,7 @@ def compare_global_to_study(
     """Require exact numeric reproduction for every shared study row."""
     expected = _load_study_rows(study_csv)
     observed = {
-        (r["protocol"], r["horizon"], r["seed"]): r
-        for r in rows
-        if r["scaling"] == "global_max"
+        _row_key(r): r for r in rows if r["scaling"] == "global_max"
     }
     shared = sorted(expected.keys() & observed.keys())
     numeric_fields = (*METRICS, "n_train", "n_val")
@@ -205,7 +214,8 @@ def compare_global_to_study(
                     {
                         "protocol": key[0],
                         "horizon": key[1],
-                        "seed": key[2],
+                        "sim_seed": key[2],
+                        "seed": key[3],
                         "field": field,
                         "expected": exp,
                         "observed": got,
@@ -225,79 +235,173 @@ def compare_global_to_study(
     }
 
 
-def build_summary(
-    rows: list[dict[str, Any]], wall_clock_seconds: float, reproduction: dict[str, Any]
-) -> dict[str, Any]:
+def _summarise_path(path_rows: list[dict[str, Any]]) -> dict[str, Any]:
     cells: dict[str, Any] = {}
-    sign_changes: list[dict[str, Any]] = []
     for protocol in study.PROTOCOLS:
         for horizon in study.HORIZONS:
             key = f"{protocol}|h{horizon}"
             arm_rows = {
                 scaling: sorted(
                     (
-                        r
-                        for r in rows
-                        if r["protocol"] == protocol
-                        and r["horizon"] == horizon
-                        and r["scaling"] == scaling
+                        row
+                        for row in path_rows
+                        if row["protocol"] == protocol
+                        and row["horizon"] == horizon
+                        and row["scaling"] == scaling
                     ),
-                    key=lambda r: r["seed"],
+                    key=lambda row: row["seed"],
                 )
                 for scaling in SCALINGS
             }
             if not arm_rows["global_max"] and not arm_rows["train_only"]:
                 continue
-            arms = {
-                scaling: {metric: study.aggregate([r[metric] for r in arm_rows[scaling]])
-                          for metric in METRICS}
-                for scaling in SCALINGS
+            global_seeds = [row["seed"] for row in arm_rows["global_max"]]
+            train_only_seeds = [row["seed"] for row in arm_rows["train_only"]]
+            if global_seeds != train_only_seeds:
+                raise RuntimeError(
+                    f"unpaired scaling arms for {key}: "
+                    f"global_max={global_seeds}, train_only={train_only_seeds}"
+                )
+            arms: dict[str, Any] = {}
+            for scaling in SCALINGS:
+                aggregates = {
+                    metric: study.aggregate([row[metric] for row in arm_rows[scaling]])
+                    for metric in METRICS
+                }
+                excess = (
+                    aggregates["val_acc"]["mean"]
+                    - aggregates["val_majority"]["mean"]
+                )
+                aggregates["excess_over_baseline"] = excess
+                aggregates["baseline_sign"] = _baseline_sign(excess)
+                aggregates["question_3_verdict"] = (
+                    "PASS_BELOW_BASELINE"
+                    if protocol == "purged_embargoed" and excess < 0.0
+                    else "FAIL_AT_OR_ABOVE_BASELINE"
+                    if protocol == "purged_embargoed"
+                    else "NOT_APPLICABLE"
+                )
+                arms[scaling] = aggregates
+            cells[key] = {
+                "split_seeds": global_seeds,
+                "arms": arms,
+                "paired_val_acc_difference": _paired_difference(
+                    [row["val_acc"] for row in arm_rows["global_max"]],
+                    [row["val_acc"] for row in arm_rows["train_only"]],
+                ),
+                "baseline_sign_change": (
+                    arms["global_max"]["baseline_sign"]
+                    != arms["train_only"]["baseline_sign"]
+                ),
             }
-            global_excess = arms["global_max"]["val_acc"]["mean"] - arms["global_max"][
-                "val_majority"
-            ]["mean"]
-            train_excess = arms["train_only"]["val_acc"]["mean"] - arms["train_only"][
-                "val_majority"
-            ]["mean"]
-            global_sign = _baseline_sign(global_excess)
-            train_sign = _baseline_sign(train_excess)
-            changed = global_sign != train_sign
-            sign_check = {
-                "baseline": "mean val_majority for the same arm and cell",
-                "global_max_excess": global_excess,
-                "global_max_sign": global_sign,
-                "train_only_excess": train_excess,
-                "train_only_sign": train_sign,
-                "changed_sign": changed,
-            }
-            if changed:
-                sign_changes.append({"cell": key, **sign_check})
-            paired = _paired_difference(
-                [r["val_acc"] for r in arm_rows["global_max"]],
-                [r["val_acc"] for r in arm_rows["train_only"]],
-            )
-            cells[key] = {"arms": arms, "paired_val_acc_difference": paired,
-                          "baseline_sign_check": sign_check}
+    return {"cells": cells}
 
-    purged = {
-        key: {
-            "mean_difference_percentage_points": value["paired_val_acc_difference"][
-                "mean_percentage_points"
-            ],
-            "absolute_mean_move_exceeds_2_points": abs(
-                value["paired_val_acc_difference"]["mean_percentage_points"]
-            ) > 2.0,
-        }
-        for key, value in cells.items()
-        if key.startswith("purged_embargoed|")
+
+def _load_normalisation_rows(path: Path) -> list[dict[str, Any]]:
+    numeric_float = set(METRICS)
+    numeric_int = {"horizon", "sim_seed", "seed", "n_train", "n_val"}
+    with path.open(newline="") as handle:
+        rows: list[dict[str, Any]] = []
+        for raw in csv.DictReader(handle):
+            row: dict[str, Any] = dict(raw)
+            for field in numeric_float:
+                row[field] = float(row[field])
+            for field in numeric_int:
+                row[field] = int(row[field])
+            rows.append(row)
+        return rows
+
+
+def build_summary(
+    measured_rows: list[dict[str, Any]],
+    report_rows: list[dict[str, Any]],
+    wall_clock_seconds: float,
+    reproduction: dict[str, Any],
+    measured_sim_seeds: list[int],
+    reference_sim_seeds: list[int],
+) -> dict[str, Any]:
+    sim_seeds = sorted({int(row["sim_seed"]) for row in report_rows})
+    paths = {
+        str(sim_seed): _summarise_path(
+            [row for row in report_rows if int(row["sim_seed"]) == sim_seed]
+        )
+        for sim_seed in sim_seeds
     }
+
+    direction_checks: list[dict[str, Any]] = []
+    h5_sign_checks: list[dict[str, Any]] = []
+    purged_checks: list[dict[str, Any]] = []
+    for sim_seed in sim_seeds:
+        cells = paths[str(sim_seed)]["cells"]
+        for horizon in (10, 20):
+            cell = cells[f"random_split|h{horizon}"]
+            global_acc = cell["arms"]["global_max"]["val_acc"]["mean"]
+            train_acc = cell["arms"]["train_only"]["val_acc"]["mean"]
+            direction_checks.append(
+                {
+                    "sim_seed": sim_seed,
+                    "horizon": horizon,
+                    "global_max_val_acc": global_acc,
+                    "train_only_val_acc": train_acc,
+                    "train_only_higher": train_acc > global_acc,
+                }
+            )
+        h5 = cells["random_split|h5"]
+        h5_sign_checks.append(
+            {
+                "sim_seed": sim_seed,
+                "global_max_excess": h5["arms"]["global_max"][
+                    "excess_over_baseline"
+                ],
+                "global_max_sign": h5["arms"]["global_max"]["baseline_sign"],
+                "train_only_excess": h5["arms"]["train_only"][
+                    "excess_over_baseline"
+                ],
+                "train_only_sign": h5["arms"]["train_only"]["baseline_sign"],
+                "changed_sign": h5["baseline_sign_change"],
+            }
+        )
+        for horizon in study.HORIZONS:
+            cell = cells[f"purged_embargoed|h{horizon}"]
+            for scaling in SCALINGS:
+                arm = cell["arms"][scaling]
+                purged_checks.append(
+                    {
+                        "sim_seed": sim_seed,
+                        "horizon": horizon,
+                        "scaling": scaling,
+                        "val_acc": arm["val_acc"]["mean"],
+                        "val_majority": arm["val_majority"]["mean"],
+                        "excess_over_baseline": arm["excess_over_baseline"],
+                        "below_baseline": arm["excess_over_baseline"] < 0.0,
+                        "verdict": arm["question_3_verdict"],
+                    }
+                )
+    measured_direction = [
+        check for check in direction_checks if check["sim_seed"] in measured_sim_seeds
+    ]
+    purged_violations = [check for check in purged_checks if not check["below_baseline"]]
 
     return {
         "description": "Paired measurement of full-data global-max normalisation versus train-only scaling.",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "wall_clock_seconds": wall_clock_seconds,
-        "n_runs": len(rows),
-        "n_paired_seeds": len(rows) // 2,
+        "n_runs": len(measured_rows),
+        "n_paired_runs": len(measured_rows) // 2,
+        "sweep": {
+            "measured_sim_seeds": measured_sim_seeds,
+            "reference_sim_seeds": reference_sim_seeds,
+            "reported_sim_seeds": sim_seeds,
+            "split_seeds_by_path": {
+                str(sim_seed): paths[str(sim_seed)]["cells"]["random_split|h5"][
+                    "split_seeds"
+                ]
+                for sim_seed in sim_seeds
+            },
+            "protocols": study.PROTOCOLS,
+            "horizons": study.HORIZONS,
+            "scalings": list(SCALINGS),
+        },
         "environment": {
             "platform": platform.platform(),
             "python": sys.version.split()[0],
@@ -308,7 +412,8 @@ def build_summary(
         },
         "pipeline": {
             "source_harness": "run_study.py",
-            "simulator_seed": 42,
+            "simulator_seeds_measured": measured_sim_seeds,
+            "simulator_seeds_reported": sim_seeds,
             "window_size": study.WINDOW_SIZE,
             "n_levels": study.N_LEVELS,
             "threshold": study.THRESHOLD,
@@ -322,19 +427,38 @@ def build_summary(
             "seeding": "torch.manual_seed(seed); random_split(generator=Generator(seed)); train DataLoader(generator=Generator(seed))",
         },
         "scope_limits": [
-            "Synthetic simulator seed 42 only.",
+            "Synthetic simulator paths only.",
             "DeepLOBModel on CPU with the run_study.py configuration only.",
             "No real exchange data, trading, PnL, Sharpe, or causal-performance claim.",
         ],
         "global_max_reproduction": reproduction,
-        "cells": cells,
-        "purged_embargoed_assessment": purged,
-        "baseline_sign_changes": sign_changes,
-        "any_baseline_sign_change": bool(sign_changes),
+        "paths": paths,
+        "questions": {
+            "1_random_h10_h20_direction": {
+                "rule": "train_only mean val_acc is higher than global_max on every measured path at h10 and h20",
+                "per_path": direction_checks,
+                "all_five_measured_paths_hold": all(
+                    check["train_only_higher"] for check in measured_direction
+                ),
+            },
+            "2_random_h5_sign_change": {
+                "rule": "compare each path's mean val_acc excess over its own mean validation-majority baseline",
+                "per_path": h5_sign_checks,
+                "paths_with_sign_change": [
+                    check["sim_seed"] for check in h5_sign_checks if check["changed_sign"]
+                ],
+            },
+            "3_purged_below_baseline": {
+                "rule": "every purged path/horizon/scaling mean val_acc must be strictly below its own mean validation-majority baseline",
+                "per_path": purged_checks,
+                "violations": purged_violations,
+                "all_reported_paths_hold": not purged_violations,
+            },
+        },
         "not_verified": [
             "Independent verification by a separate reviewer was not performed by this runner.",
             "GPU execution was not tested; the study and this measurement run on CPU.",
-            "Generalisability beyond simulator seed 42 was not tested.",
+            "Generalisability beyond the reported synthetic simulator paths was not tested.",
         ],
     }
 
@@ -362,24 +486,31 @@ def main() -> None:
     parser.add_argument("--protocols", nargs="+", default=study.PROTOCOLS)
     parser.add_argument("--horizons", nargs="+", type=int, default=study.HORIZONS)
     parser.add_argument("--seeds", nargs="+", type=int, default=study.DEFAULT_SEEDS)
+    parser.add_argument("--sim-seeds", nargs="+", type=int, default=[42])
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
-    parser.add_argument("--max-minutes", type=float, default=90.0)
+    parser.add_argument("--max-minutes", type=float, default=120.0)
     args = parser.parse_args()
 
-    n_pairs = len(args.protocols) * len(args.horizons) * len(args.seeds)
+    n_pairs = (
+        len(args.sim_seeds)
+        * len(args.protocols)
+        * len(args.horizons)
+        * len(args.seeds)
+    )
     n_runs = 2 * n_pairs
-    study_summary_path = ROOT / "results" / "study" / "summary.json"
-    study_seconds = None
-    if study_summary_path.exists():
-        study_seconds = json.loads(study_summary_path.read_text()).get("wall_clock_seconds")
-    estimate_seconds = (n_runs / 180.0) * study_seconds if study_seconds else None
+    timing_path = ROOT / "results" / "normalisation" / "summary.json"
+    timing = json.loads(timing_path.read_text()) if timing_path.exists() else None
+    estimate_seconds = (
+        n_runs * timing["wall_clock_seconds"] / timing["n_runs"] if timing else None
+    )
     print(f"Starting paired normalisation measurement: {n_runs} runs ({n_pairs} pairs)")
     if estimate_seconds is None:
         print("Projected wall clock: unknown (no committed study timing available)")
     else:
         print(
             f"Projected wall clock: {estimate_seconds / 60:.1f} minutes "
-            f"from results/study baseline ({study_seconds:.1f}s for 180 runs)"
+            f"from results/normalisation baseline "
+            f"({timing['wall_clock_seconds']:.1f}s for {timing['n_runs']} runs)"
         )
     print(f"Hard stop: {args.max_minutes:.1f} minutes; incomplete sweeps write nothing")
     if estimate_seconds is not None and estimate_seconds > args.max_minutes * 60:
@@ -387,32 +518,71 @@ def main() -> None:
             "STOP: projected wall clock exceeds the configured limit; full sweep not started."
         )
 
-    df = study.load_dataframe(42)
-    tasks = [(p, h, s) for p in args.protocols for h in args.horizons for s in args.seeds]
     rows: list[dict[str, Any]] = []
     started = time.perf_counter()
-    with ProcessPoolExecutor(
-        max_workers=args.workers, initializer=_init_worker, initargs=(df,)
-    ) as executor:
-        futures = [executor.submit(run_pair, p, h, s, args.threads) for p, h, s in tasks]
-        for index, future in enumerate(futures, 1):
-            rows.extend(future.result())
-            elapsed = time.perf_counter() - started
-            if index % 10 == 0 or index == n_pairs:
-                print(f"  {index}/{n_pairs} pairs ({2 * index}/{n_runs} runs), {elapsed:.1f}s")
-            if elapsed > args.max_minutes * 60:
-                print(
-                    f"ABORT: {elapsed / 60:.1f} minutes exceeded the cap after "
-                    f"{index}/{n_pairs} pairs. Nothing written.",
-                    flush=True,
+    completed_pairs = 0
+    for sim_seed in args.sim_seeds:
+        df = study.load_dataframe(sim_seed)
+        tasks = [
+            (protocol, horizon, seed)
+            for protocol in args.protocols
+            for horizon in args.horizons
+            for seed in args.seeds
+        ]
+        with ProcessPoolExecutor(
+            max_workers=args.workers, initializer=_init_worker, initargs=(df,)
+        ) as executor:
+            futures = [
+                executor.submit(
+                    run_pair, protocol, horizon, seed, args.threads, sim_seed
                 )
-                executor.shutdown(wait=False, cancel_futures=True)
-                raise SystemExit(1)
+                for protocol, horizon, seed in tasks
+            ]
+            for future in futures:
+                rows.extend(future.result())
+                completed_pairs += 1
+                elapsed = time.perf_counter() - started
+                if completed_pairs % 10 == 0 or completed_pairs == n_pairs:
+                    print(
+                        f"  {completed_pairs}/{n_pairs} pairs "
+                        f"({2 * completed_pairs}/{n_runs} runs), {elapsed:.1f}s"
+                    )
+                if elapsed > args.max_minutes * 60:
+                    print(
+                        f"ABORT: {elapsed / 60:.1f} minutes exceeded the cap after "
+                        f"{completed_pairs}/{n_pairs} pairs. Nothing written.",
+                        flush=True,
+                    )
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    raise SystemExit(1)
 
     wall_clock_seconds = time.perf_counter() - started
-    rows.sort(key=lambda r: (r["protocol"], r["horizon"], r["seed"], r["scaling"]))
-    reproduction = compare_global_to_study(rows, ROOT / "results" / "study" / "runs.csv")
-    summary = build_summary(rows, wall_clock_seconds, reproduction)
+    rows.sort(
+        key=lambda row: (
+            row["sim_seed"], row["protocol"], row["horizon"], row["seed"], row["scaling"]
+        )
+    )
+    multiseed_reference = ROOT / "results" / "study-multiseed" / "runs.csv"
+    study_reference = (
+        multiseed_reference
+        if multiseed_reference.exists() and any(seed != 42 for seed in args.sim_seeds)
+        else ROOT / "results" / "study" / "runs.csv"
+    )
+    reproduction = compare_global_to_study(rows, study_reference)
+    reference_rows: list[dict[str, Any]] = []
+    reference_sim_seeds: list[int] = []
+    seed_42_path = ROOT / "results" / "normalisation" / "runs.csv"
+    if 42 not in args.sim_seeds and seed_42_path.exists():
+        reference_rows = _load_normalisation_rows(seed_42_path)
+        reference_sim_seeds = [42]
+    summary = build_summary(
+        rows,
+        rows + reference_rows,
+        wall_clock_seconds,
+        reproduction,
+        list(args.sim_seeds),
+        reference_sim_seeds,
+    )
     _write_results(rows, summary, args.out)
     print(f"Completed in {wall_clock_seconds / 60:.1f} minutes")
     print(
@@ -420,15 +590,19 @@ def main() -> None:
         f"{reproduction['reproduced_exactly']} "
         f"({reproduction['shared_rows']} shared rows, {reproduction['mismatch_count']} mismatches)"
     )
-    for key, cell in summary["cells"].items():
-        diff = cell["paired_val_acc_difference"]
-        sign = cell["baseline_sign_check"]
-        print(
-            f"{key:24} delta={diff['mean_percentage_points']:+.3f} pp "
-            f"95% CI [{diff['ci95_low_percentage_points']:+.3f}, "
-            f"{diff['ci95_high_percentage_points']:+.3f}] "
-            f"sign {sign['global_max_sign']}->{sign['train_only_sign']}"
-        )
+    questions = summary["questions"]
+    print(
+        "Q1 all five measured paths hold: "
+        f"{questions['1_random_h10_h20_direction']['all_five_measured_paths_hold']}"
+    )
+    print(
+        "Q2 paths with random h5 sign change: "
+        f"{questions['2_random_h5_sign_change']['paths_with_sign_change']}"
+    )
+    print(
+        "Q3 all reported paths hold: "
+        f"{questions['3_purged_below_baseline']['all_reported_paths_hold']}"
+    )
     print(f"Wrote {args.out / 'runs.csv'} and {args.out / 'summary.json'}")
 
 
