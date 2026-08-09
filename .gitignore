@@ -45,3 +45,9 @@ Untitled.ipynb
 
 # Generated audit report (regenerate via `python -m deep_lob.audit`)
 reports/leakage_audit.json
+
+# LaTeX build artifacts
+docs/paper/*.aux
+docs/paper/*.log
+docs/paper/*.out
+docs/paper/*.toc
