@@ -45,8 +45,11 @@ def run_experiment(config_path: str) -> None:
     lob_npz = Path(paths_cfg["lob_npz"])
     model_path = Path(paths_cfg["model"])
 
-    results_root = Path(paths_cfg.get("results_root", "results"))
-    results_dir = results_root / exp_name
+    results_dir = Path(paths_cfg["results_dir"])
+    assert results_dir.name == exp_name, (
+        f"results_dir basename {results_dir.name!r} must match "
+        f"experiment_name {exp_name!r}"
+    )
 
     print(f"\n=== Running experiment: {exp_name} ===")
 

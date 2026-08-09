@@ -4,7 +4,7 @@ paths:
   raw_csv: "data/raw/simulated_lob.csv"
   lob_npz: "data/processed/lob_windows.npz"
   model: "models/deeplob_synthetic.pt"
-  results_dir: "results/baseline_a"
+  results_dir: "results/h5_L100"
 
 simulation:
   enabled: true

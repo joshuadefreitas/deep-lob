@@ -2,7 +2,7 @@
 
 An advanced, self-contained study of the data and evaluation path behind short-horizon limit-order-book modelling. It contains a synthetic order-book generator, DeepLOB and TCN implementations, and a reproducible audit of temporal leakage.
 
-> **Current status:** the historical accuracy, PnL, and Sharpe artifacts in this repository are legacy outputs from a random split of overlapping windows with full-data normalization. They are not validated trading or alpha results. The active work is the validation study, [When Overlapping Windows Invent Predictability](docs/leakage_audit.md).
+> **Current status:** the historical accuracy, PnL, and Sharpe artifacts in this repository are legacy outputs from a random split of overlapping windows with full-data normalization. In addition, `evaluate_model()` scored the entire window set, including windows used for training, so those figures are training-set accuracy rather than held-out accuracy. They are not validated trading or alpha results. The active work is the validation study, [When Overlapping Windows Invent Predictability](docs/leakage_audit.md).
 
 ## Start Here
 

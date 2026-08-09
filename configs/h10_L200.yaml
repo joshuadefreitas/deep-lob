@@ -1,10 +1,10 @@
-experiment_name: "h20_L100"
+experiment_name: "h10_L200"
 
 paths:
   raw_csv: "data/raw/simulated_lob.csv"
   lob_npz: "data/processed/lob_windows.npz"
   model: "models/deeplob_synthetic.pt"
-  results_dir: "results/baseline_a"
+  results_dir: "results/h10_L200"
 
 simulation:
   enabled: true
@@ -12,8 +12,8 @@ simulation:
   seed: 42
 
 lob:
-  window_size: 100
-  horizon: 20
+  window_size: 200
+  horizon: 10
   n_levels: 3
   threshold: 0.0005
 
