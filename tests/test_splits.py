@@ -64,6 +64,47 @@ def test_purged_embargoed_split_is_smaller_than_chronological():
     assert len(purged.train_idx) < len(chrono.train_idx)
 
 
+def test_embargo_actually_removes_validation_windows():
+    """
+    The embargo is unenforced without this.
+
+    purged_embargoed_split does two things: it PURGES training windows whose
+    raw-row span reaches into the validation region, and it EMBARGOES a buffer
+    of validation windows after the cut. Every other assertion in this file is
+    satisfied by purging alone - an independent audit demonstrated it by setting
+    embargo=0 and watching all 50 tests stay green.
+
+    So this asserts the embargo's own effect: it must shrink the validation set
+    relative to a plain chronological cut, and the first validation window must
+    sit at least `horizon` windows past the cut.
+    """
+    n = _n_windows()
+    chrono = chronological_split(n, train_frac=0.8)
+    purged = purged_embargoed_split(n, WINDOW_SIZE, HORIZON, train_frac=0.8)
+    cut = int(0.8 * n)
+
+    assert len(purged.val_idx) < len(chrono.val_idx), (
+        "the embargo removed no validation windows; it is not in effect"
+    )
+    assert int(purged.val_idx[0]) - cut >= HORIZON, (
+        f"first validation window is {int(purged.val_idx[0]) - cut} past the cut, "
+        f"expected at least {HORIZON}"
+    )
+
+
+def test_embargo_length_is_respected():
+    """An explicit embargo must be honoured exactly, not approximately."""
+    n = _n_windows()
+    cut = int(0.8 * n)
+    for embargo in (0, 5, 25):
+        sp = purged_embargoed_split(n, WINDOW_SIZE, HORIZON, train_frac=0.8,
+                                    embargo=embargo)
+        assert int(sp.val_idx[0]) == cut + embargo, (
+            f"embargo={embargo}: validation starts at {int(sp.val_idx[0])}, "
+            f"expected {cut + embargo}"
+        )
+
+
 def test_chronological_split_can_still_have_boundary_overlap():
     # Sanity check that chronological-without-purge is a genuinely weaker
     # control than purged_embargoed: with window_size+horizon=25 windows

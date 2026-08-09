@@ -17,6 +17,9 @@ dev = [
 test = [
   "pytest",
 ]
+figures = [
+  "matplotlib",
+]
 
 [tool.pytest.ini_options]
 pythonpath = [
