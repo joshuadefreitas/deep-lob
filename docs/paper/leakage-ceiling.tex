@@ -25,19 +25,25 @@ We train a short-horizon limit-order-book classifier on synthetic data in which
 future price movement is independent of every feature by construction. Under the
 standard evaluation recipe --- sliding windows at stride one, a random
 train/validation split, and normalisation fitted on the full dataset --- the
-model reports $66.0\%$ accuracy against a majority-class baseline of $39.8\%$.
-Under a purged and embargoed split, on identical data with the same architecture
-and the same seeds, it reports $32.9\%$: below baseline, which is the correct
-result when nothing is learnable. The $33$-point difference is produced entirely
-by how the validation set was drawn.
+model scores $+26.8$ points above its majority-class baseline at a
+$20$-step horizon. Under a purged and embargoed split, on identical data with the
+same architecture and the same seeds, it scores $-8.4$ points ---
+\emph{below} baseline, which is the correct result when nothing is learnable.
+The $35$-point difference is produced entirely by how the validation set was
+drawn. Both figures are means over five independent generator paths with twenty
+split seeds each ($900$ runs); across paths the leaky excess ranges
+$+26.0$ to $+28.2$ and the purged excess $-14.6$ to $-3.3$, so the sign of each is a property of the protocol rather than
+of the realisation.
 
-We then derive a closed-form upper bound on the accuracy a given split geometry
-makes available. The bound depends only on the window stride, the label horizon,
-the labelling threshold and the train fraction; no property of the model enters
-it. An oracle memoriser attains it to within $0.34$ points at every horizon tested,
-and the derivation is verified against $105$ further measurements spanning $20$
-independent generator paths, five window sizes, five thresholds and five train
-fractions.
+We then derive a closed-form expression for the accuracy a given split geometry
+makes available. It depends only on the window stride, the label horizon, the
+labelling threshold and the train fraction; no property of the model enters it.
+It is an approximation rather than a proved bound --- an oracle memoriser sits
+just below it at $h \in \{5,10\}$ and just above it at $h=20$ --- and it tracks
+that oracle to within $0.56$ points at every horizon, averaged over six
+independent generator paths. The derivation is further checked
+against $105$ measurements spanning $20$ independent generator paths,
+five window sizes, five thresholds and five train fractions.
 
 The derivation is prescriptive. With stride $s$ and horizon $h$ the governing
 correlation is $\rho(s)=\max\!\left(0,(h-s)/h\right)$, which is exactly zero at
@@ -156,8 +162,16 @@ cut~\cite{lopezdeprado2018}.
 
 Every run seeds the split draw, the weight initialisation and the batch order,
 so the study is bit-reproducible even though the pipeline it studies is not
-(Section~\ref{sec:repro}). Twenty seeds per cell, three horizons, three
-protocols: $180$ runs.
+(Section~\ref{sec:repro}).
+
+\paragraph{Configuration span.} Five independent generator paths $\times$ three
+protocols $\times$ three horizons $\times$ twenty split seeds: $900$ runs. Every
+number reported below is a mean over generator paths, quoted with its across-path
+standard deviation, and every claim is additionally checked on each path
+separately (Section~\ref{sec:perpath}). The study is \emph{not} varied across
+window size, labelling threshold, train fraction, optimiser, epoch count, row
+count or architecture; Section~\ref{sec:robust} varies the first three for the
+derivation alone, and Section~\ref{sec:limits} states what that leaves open.
 
 Accuracy is reported as \textbf{excess over the majority-class baseline computed
 on the same validation set}. The baseline moves from $0.575$ to $0.398$ across
@@ -169,25 +183,29 @@ comparable between rows.
 \begin{table}[h]
 \centering
 \small
-\begin{tabular}{llrrrr}
+\begin{tabular}{llrrrrr}
 \toprule
-Protocol & $h$ & Accuracy & 95\% CI & Baseline & Excess \\
+Protocol & $h$ & Accuracy & Baseline & Excess & sd (paths) & range over paths \\
 \midrule
-\texttt{random\_split} & 5 & 0.5229 & [0.5130, 0.5328] & 0.5315 & $-0.0086$ \\
-\texttt{random\_split} & 10 & 0.5337 & [0.5179, 0.5495] & 0.3931 & $\mathbf{+0.1407}$ \\
-\texttt{random\_split} & 20 & 0.6603 & [0.6241, 0.6966] & 0.3980 & $\mathbf{+0.2624}$ \\
+\texttt{random\_split} & 5 & 0.5383 & 0.5445 & $-0.0061$ & 0.0071 & $[-0.0127, +0.0054]$ \\
+\texttt{random\_split} & 10 & 0.5542 & 0.3953 & $\mathbf{+0.1589}$ & 0.0184 & $[+0.1338, +0.1828]$ \\
+\texttt{random\_split} & 20 & 0.6446 & 0.3762 & $\mathbf{+0.2685}$ & 0.0080 & $[+0.2603, +0.2818]$ \\
 \addlinespace
-\texttt{chronological} & 5 & 0.5029 & [0.4836, 0.5222] & 0.5745 & $-0.0716$ \\
-\texttt{chronological} & 10 & 0.3238 & [0.3117, 0.3358] & 0.4484 & $-0.1246$ \\
-\texttt{chronological} & 20 & 0.3264 & [0.3071, 0.3457] & 0.4023 & $-0.0759$ \\
+\texttt{chronological} & 5 & 0.4862 & 0.5518 & $-0.0656$ & 0.0144 & $[-0.0827, -0.0494]$ \\
+\texttt{chronological} & 10 & 0.3412 & 0.4153 & $-0.0741$ & 0.0254 & $[-0.0972, -0.0342]$ \\
+\texttt{chronological} & 20 & 0.3295 & 0.4123 & $-0.0828$ & 0.0343 & $[-0.1295, -0.0474]$ \\
 \addlinespace
-\texttt{purged\_embargoed} & 5 & 0.4853 & [0.4736, 0.4971] & 0.5754 & $-0.0901$ \\
-\texttt{purged\_embargoed} & 10 & 0.3316 & [0.3197, 0.3436] & 0.4510 & $-0.1193$ \\
-\texttt{purged\_embargoed} & 20 & 0.3290 & [0.3093, 0.3487] & 0.4013 & $-0.0723$ \\
+\texttt{purged\_embargoed} & 5 & 0.4897 & 0.5504 & $-0.0606$ & 0.0202 & $[-0.0817, -0.0357]$ \\
+\texttt{purged\_embargoed} & 10 & 0.3324 & 0.4167 & $-0.0843$ & 0.0274 & $[-0.1035, -0.0380]$ \\
+\texttt{purged\_embargoed} & 20 & 0.3280 & 0.4125 & $-0.0845$ & 0.0449 & $[-0.1464, -0.0327]$ \\
 \bottomrule
 \end{tabular}
-\caption{Validation-only accuracy, mean over 20 seeds, with the 95\% confidence
-interval of the mean.}
+\caption{Validation-only accuracy, averaged over five independent generator paths
+with twenty split seeds each. \emph{Excess} is accuracy minus the majority-class
+baseline on the same validation set; \emph{sd (paths)} is the standard deviation
+of that excess across paths and the final column its full range. Only
+\texttt{random\_split} at $h \geq 10$ clears its baseline, and it clears it on
+every path.}
 \label{tab:main}
 \end{table}
 
@@ -212,16 +230,20 @@ leaves a thin seam and manufactures nothing. What matters is whether
 near-duplicate \emph{neighbours} are separated across the split, which shuffling
 guarantees and a time cut prevents.
 
-\paragraph{Leakage widens as well as inflates.} The leaky $h=20$ cell has the
-largest dispersion in the table --- standard deviation $0.0775$ against $0.0421$
-for its purged counterpart, with individual seeds spanning $0.468$ to $0.751$.
+\paragraph{Leakage widens as well as inflates.} Within a single generator path,
+the leaky $h=20$ cell disperses far more across split seeds than its purged
+counterpart: on the reference path, standard deviation $0.0775$ against $0.0421$,
+with individual seeds spanning $0.468$ to $0.751$. Note the contrast with the
+across-path standard deviation of $0.0080$ in the table above --- the manufactured
+advantage is an order of magnitude more stable across data realisations than
+across initialisations, which is what one expects of a property of the evaluation
+geometry rather than of any fitted model.
 
 \subsection{Every generator path, separately}
+\label{sec:perpath}
 
-The table above is twenty split seeds on one random-walk realisation. To check
-that the conclusion is not a property of that realisation, the full study was
-repeated across five independent generator paths --- $900$ runs. Excess over
-baseline, per path:
+Table~\ref{tab:main} averages over paths, which can hide a conclusion that holds
+only on average. It does not here. The same nine cells, unpooled:
 
 \begin{table}[h]
 \centering
@@ -246,12 +268,9 @@ is negative on every path; \texttt{random\_split} is positive on every path at
 $h \geq 10$. No path contradicts the conclusion.}
 \end{table}
 
-The across-path standard deviation of the excess at $h=20$ under
-\texttt{random\_split} is $0.008$, against a within-path standard deviation
-across model seeds of $0.078$. The effect is an order of magnitude more stable
-across data realisations than across initialisations, which is consistent with
-it being a property of the evaluation geometry rather than of any particular
-fitted model.
+Nine cells $\times$ five paths is $45$ signs, and all $45$ agree with
+Table~\ref{tab:main}. The conclusion does not rest on a choice of generator
+seed.
 
 \section{The ceiling}
 \label{sec:ceiling}
@@ -310,21 +329,29 @@ whether a learner could locate its twin.
 \centering
 \begin{tabular}{lrrrr}
 \toprule
-$h$ & $\rho$ & Ceiling $C(h)$ & Oracle & Error \\
+$h$ & $\rho$ & Ceiling $C(h)$ & Oracle (6 paths) & Error \\
 \midrule
-5  & 0.800 & 0.6896 & 0.6923 & $+0.0027$ \\
-10 & 0.900 & 0.7479 & 0.7513 & $+0.0034$ \\
-20 & 0.950 & 0.8093 & 0.8098 & $+0.0005$ \\
+5 & 0.800 & 0.6896 & 0.6873 $\pm$ 0.0044 & $-0.0023$ \\
+10 & 0.900 & 0.7479 & 0.7465 $\pm$ 0.0073 & $-0.0014$ \\
+20 & 0.950 & 0.8093 & 0.8149 $\pm$ 0.0085 & $+0.0056$ \\
 \bottomrule
 \end{tabular}
-\caption{The closed form predicts the oracle to within $0.34$ points, with no fitted
-parameter.}
+\caption{The oracle column is the mean over six independent generator paths, of
+the mean over twenty split seeds within each, $\pm$ the standard deviation of
+those six path means. The prediction error is smaller than that spread at every
+horizon, and no parameter is fitted. Note the sign: the closed form slightly
+over-predicts at $h \in \{5,10\}$ and under-predicts at $h=20$, consistent with
+the class-balance term $M(h)$ discussed in Section~\ref{sec:limits}. It is an
+approximation to a bound, not a bound that has been proved to hold pathwise.}
 \end{table}
 
-The bound binds only under a random split. Under \texttt{chronological} and
+The expression binds only under a random split. Under \texttt{chronological} and
 \texttt{purged\_embargoed} the nearest training window is the \emph{same} window
 for every validation example, so the strategy degenerates to a constant
-predictor and scores at or below baseline ($0.19$ to $0.40$ in our runs).
+predictor and scores at or below baseline: across $36$ measurements --- six
+generator paths $\times$ three horizons $\times$ two honest protocols --- the
+oracle's excess over baseline runs from $-0.38$ to exactly $0.00$ and is
+positive in none of them.
 Copying one's neighbour is useful only when the neighbour has been scattered
 into the training set.
 
@@ -333,13 +360,16 @@ into the training set.
 \begin{figure}[h]
 \centering
 \includegraphics[width=0.72\textwidth]{../figures/fig3-available-vs-taken.pdf}
-\caption{The shaded region is the leak the split makes available. The trained network takes none of it at $h=5$ and $64\%$ at $h=20$.}
+\caption{The shaded region is the leak the split makes available. The trained
+network takes none of it at $h=5$ and $62\%$ at $h=20$.}
 \label{fig:taken}
 \end{figure}
 
 Measured accuracy can be read as the fraction of available leak a given model
-recovers: none at $h=5$, $40\%$ at $h=10$, $64\%$ at $h=20$. At $h=5$ there are $15.8$ points of leak available and this architecture takes
-none of them.
+recovers. Averaged over generator paths: none at $h=5$, $45\%$ at $h=10$,
+$62\%$ at $h=20$. At $h=5$ there are $14.5$ points of leak available and this
+architecture takes none of them --- it is $0.6$ points \emph{below} its baseline,
+which is within the across-path spread of $0.7$ points.
 
 The ceiling therefore describes the \emph{exposure} a split geometry creates.
 Whether a particular model converts that exposure into a headline number is a
@@ -347,7 +377,8 @@ separate, model-dependent question. Both are worth knowing, and only the first
 can be computed in advance.
 
 For completeness: a 1-nearest-neighbour classifier in raw feature space scores
-$0.36$--$0.43$, below baseline. Euclidean distance over price-level features
+$0.29$--$0.45$ across $360$ runs on six generator paths, below baseline
+everywhere. Euclidean distance over price-level features
 locates windows at similar \emph{price levels}, not temporal twins. The trained
 network's performance is therefore not naive distance matching.
 
@@ -542,6 +573,7 @@ effect is too small to resolve at this sample size, and we can neither confirm
 nor exclude it.
 
 \section{Limitations}
+\label{sec:limits}
 
 \begin{itemize}
 \item \textbf{No published result is shown to be incorrect.} We show what a
@@ -575,22 +607,25 @@ count, architecture.
 \section{Conclusion}
 
 On data constructed to contain no predictable structure, the standard evaluation
-recipe for time-series machine learning reports $66\%$ accuracy against a $40\%$
-baseline. The honest protocol reports $33\%$. The difference is attributable
-entirely to the evaluation design, and because the data contains no signal, the
-usual defence of the leaky protocol is unavailable.
+recipe for time-series machine learning reports $64\%$ accuracy against a
+$38\%$ baseline. The honest protocol reports $33\%$ against
+$41\%$. Averaged over five generator paths and twenty split seeds each,
+and with the same sign on every one of those paths, the difference is attributable
+entirely to the evaluation design; because the data contains no signal, the usual
+defence of the leaky protocol is unavailable.
 
 The quantity has a closed form. The accuracy a split geometry makes available
 depends on stride, horizon, threshold and train fraction, and on nothing about
-the model. That expression is verified against measurement across $24$
-configurations, and it states its own remedy: at stride greater than or equal to
-the label horizon, the leak is zero.
+the model. That expression is verified against measurement across $105$
+configurations spanning twenty generator paths, five window sizes, five
+thresholds and five train fractions, and it states its own remedy: at stride
+greater than or equal to the label horizon, the leak is zero.
 
 \section*{Reproducing}
 
 \begin{verbatim}
 python3 -m venv .venv && .venv/bin/pip install -e ".[test]"
-.venv/bin/python run_study.py       # 180 seeded runs
+.venv/bin/python run_study.py       # 900 seeded runs, 5 generator paths
 .venv/bin/python run_ceiling.py     # closed form, oracle, 1-NN
 .venv/bin/python run_stride.py      # stride sweep
 .venv/bin/python make_figures.py    # figures from committed results

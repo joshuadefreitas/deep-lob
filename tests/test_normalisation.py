@@ -1,6 +1,13 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
+
+# run_normalisation imports torch at module scope. Without this guard a missing
+# torch is a COLLECTION error, which aborts the entire suite -- not just this
+# file. One absent optional dependency silently disabling every test is a worse
+# failure than the skip.
+pytest.importorskip("torch", reason="run_normalisation requires torch")
 
 from run_normalisation import (
     _paired_difference,
