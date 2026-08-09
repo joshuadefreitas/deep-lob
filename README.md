@@ -2,6 +2,8 @@
 
 An advanced, self-contained study of the data and evaluation path behind short-horizon limit-order-book modelling. It contains a synthetic order-book generator, DeepLOB and TCN implementations, and a reproducible audit of temporal leakage.
 
+> **The result:** [When Overlapping Windows Invent Predictability](docs/when-overlapping-windows-invent-predictability.md) — on data with provably no signal, a random split of overlapping windows reports 66.0% accuracy against a 39.8% baseline; a purged split reports 32.9%. The closed-form ceiling on manufactured accuracy is derived and verified in §5.
+>
 > **Current status:** the historical accuracy, PnL, and Sharpe artifacts in this repository are legacy outputs from a random split of overlapping windows with full-data normalization. In addition, `evaluate_model()` scored the entire window set, including windows used for training, so those figures are training-set accuracy rather than held-out accuracy. They are not validated trading or alpha results. The active work is the validation study, [When Overlapping Windows Invent Predictability](docs/leakage_audit.md).
 
 ## Start Here
