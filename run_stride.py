@@ -26,6 +26,17 @@ each stride.
 Note the trade: raising the stride also shrinks the dataset by a factor of s.
 The columns report n_windows so the cost is visible alongside the benefit.
 
+Configuration span
+------------------
+Measured across: 5 independent generator paths (sim seeds 0-4), 3 horizons,
+9 strides, 10 split seeds per cell.
+NOT varied across: window size (100), threshold (5e-4), train fraction (0.8),
+number of rows (5000), model (none - the oracle needs no model).
+
+An earlier version measured ONE generator path. The remedy is a headline claim
+and it was verified on a single random walk; that is the failure protocol rule
+11 exists to prevent.
+
 Output: results/stride/stride.csv and stride.json
 Run:    .venv/bin/python run_stride.py
 """
@@ -44,8 +55,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from deep_lob.data import build_lob_windows, load_raw_lob  # noqa: E402
-from deep_lob.simulator import save_simulated_lob_csv  # noqa: E402
+from deep_lob.data import build_lob_windows  # noqa: E402
+from deep_lob.simulator import simulate_lob  # noqa: E402
 from deep_lob.splits import random_overlap_split  # noqa: E402
 from run_ceiling import (  # noqa: E402
     analytic_ceiling,
@@ -54,7 +65,6 @@ from run_ceiling import (  # noqa: E402
     TRAIN_FRAC,
     WINDOW_SIZE,
     N_ROWS,
-    SIM_SEED,
     _bivariate_normal_cdf,
     _norm_cdf,
     majority_frac,
@@ -64,6 +74,12 @@ from run_ceiling import (  # noqa: E402
 HORIZONS = (5, 10, 20)
 STRIDES = (1, 2, 3, 5, 8, 10, 15, 20, 30)
 SPLIT_SEEDS = tuple(range(10))
+SIM_SEEDS = (0, 1, 2, 3, 4)
+# Two generator lengths. 5000 matches the rest of the study; at stride = horizon
+# it leaves ~49 validation windows, so one window is worth 2 accuracy points and
+# the verification of the remedy is underpowered exactly where the remedy bites.
+# 20000 gives ~199 validation windows at s=h. Both are reported.
+ROW_COUNTS = (5000, 20000)
 
 
 def ceiling_at_stride(horizon: int, stride: int, train_frac: float = TRAIN_FRAC) -> dict:
@@ -87,75 +103,67 @@ def main() -> None:
     out_dir = ROOT / "results" / "stride"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    raw_csv = ROOT / "data" / "raw" / "simulated_lob.csv"
-    if not raw_csv.exists():
-        save_simulated_lob_csv(out_path=raw_csv, n_rows=N_ROWS, seed=SIM_SEED)
-    df = load_raw_lob(raw_csv)
-
     rows: list[dict] = []
-    print(f"{'h':>3}{'stride':>8}{'rho':>7}{'ceiling':>10}{'oracle':>9}{'excess':>9}{'n_win':>8}")
-    print("-" * 54)
-
-    for h in HORIZONS:
-        X_all, y_all = build_lob_windows(
-            df, window_size=WINDOW_SIZE, horizon=h, threshold=THRESHOLD
-        )
-        for s in STRIDES:
-            keep = np.arange(0, len(y_all), s)
-            y = y_all[keep]
-            n = len(y)
-            if n < 200:
-                continue
-            c = ceiling_at_stride(h, s)
-
-            oracles = []
-            for seed in SPLIT_SEEDS:
-                sp = random_overlap_split(n, TRAIN_FRAC, seed=seed)
-                oracles.append(oracle_twin_accuracy(sp.train_idx, sp.val_idx, y))
-            oracle = float(np.mean(oracles))
-            maj = majority_frac(y)
-
-            rows.append(
-                {
-                    "horizon": h,
-                    "stride": s,
-                    "rho": c["rho"],
-                    "p_adjacent_agree": c["p_adjacent_agree"],
-                    "ceiling": c["ceiling"],
-                    "oracle_twin_acc": oracle,
+    for n_rows in ROW_COUNTS:
+      for sim_seed in SIM_SEEDS:
+        df = simulate_lob(n_rows=n_rows, seed=sim_seed)
+        for h in HORIZONS:
+            X_all, y_all = build_lob_windows(
+                df, window_size=WINDOW_SIZE, horizon=h, threshold=THRESHOLD
+            )
+            for st in STRIDES:
+                y = y_all[::st]
+                n = len(y)
+                if n < 200:
+                    continue
+                c = ceiling_at_stride(h, st)
+                oracles = [
+                    oracle_twin_accuracy(sp.train_idx, sp.val_idx, y)
+                    for sp in (random_overlap_split(n, TRAIN_FRAC, seed=s) for s in SPLIT_SEEDS)
+                ]
+                oracle = float(np.mean(oracles))
+                maj = majority_frac(y)
+                rows.append({
+                    "n_rows": n_rows, "sim_seed": sim_seed, "horizon": h, "stride": st,
+                    "rho": c["rho"], "p_adjacent_agree": c["p_adjacent_agree"],
+                    "ceiling": c["ceiling"], "oracle_twin_acc": oracle,
                     "oracle_excess_over_majority": oracle - maj,
-                    "majority": maj,
-                    "n_windows": int(n),
-                }
-            )
-            print(
-                f"{h:>3}{s:>8}{c['rho']:>7.3f}{c['ceiling']:>10.4f}"
-                f"{oracle:>9.4f}{oracle-maj:>+9.4f}{n:>8}"
-            )
-        print()
+                    "majority": maj, "n_windows": int(n),
+                })
+        print(f"  rows={n_rows} path={sim_seed} done")
 
     with (out_dir / "stride.csv").open("w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-        w.writeheader()
-        w.writerows(rows)
+        w = csv.DictWriter(f, fieldnames=list(rows[0].keys())); w.writeheader(); w.writerows(rows)
     with (out_dir / "stride.json").open("w") as f:
         json.dump(rows, f, indent=2)
 
-    # the headline: does the leak vanish at stride >= horizon?
-    print("=== leak at stride 1 vs stride >= horizon ===")
-    for h in HORIZONS:
-        a = next(r for r in rows if r["horizon"] == h and r["stride"] == 1)
-        b = next(
-            (r for r in rows if r["horizon"] == h and r["stride"] >= h), None
-        )
-        if b:
-            print(
-                f"h={h:<3} stride 1: oracle {a['oracle_twin_acc']:.4f} "
-                f"(+{a['oracle_excess_over_majority']:.4f} over majority, n={a['n_windows']})"
-                f"   ->   stride {b['stride']}: oracle {b['oracle_twin_acc']:.4f} "
-                f"({b['oracle_excess_over_majority']:+.4f}, n={b['n_windows']})"
-            )
-    print(f"\nwrote {out_dir/'stride.csv'}")
+    # ---- the claim, tested on every path separately -----------------------
+    print("\n=== DOES THE LEAK VANISH AT STRIDE >= HORIZON, ON EVERY PATH? ===")
+    print(f"{'rows':>7}{'h':>4}{'path':>6}{'n_val':>7}{'s=1':>10}{'s=h':>10}   verdict")
+    print("-" * 56)
+    violations = []
+    for n_rows in ROW_COUNTS:
+      for h in HORIZONS:
+        for sim_seed in SIM_SEEDS:
+            a = next(r for r in rows if r["n_rows"]==n_rows and r["sim_seed"] == sim_seed and r["horizon"] == h and r["stride"] == 1)
+            b = next((r for r in rows if r["n_rows"]==n_rows and r["sim_seed"] == sim_seed and r["horizon"] == h and r["stride"] >= h), None)
+            if b is None:
+                continue
+            ok = a["oracle_excess_over_majority"] > 0 and b["oracle_excess_over_majority"] <= 0
+            if not ok:
+                violations.append((n_rows, h, sim_seed, b["oracle_excess_over_majority"]))
+            print(f"{n_rows:>7}{h:>4}{sim_seed:>6}{int(0.2*b['n_windows']):>7}"
+                  f"{a['oracle_excess_over_majority']:>+10.4f}{b['oracle_excess_over_majority']:>+10.4f}"
+                  f"   {'OK' if ok else 'VIOLATION'}")
+        print()
+
+    print("=== closed form vs oracle, pooled over paths ===")
+    import statistics as st
+    errs = [abs(r["oracle_twin_acc"] - r["ceiling"]) for r in rows]
+    print(f"  n = {len(errs)}   mean |error| = {st.mean(errs):.4f}   max = {max(errs):.4f}")
+
+    print("\nVIOLATIONS:", violations if violations else "none - the remedy holds on all 5 paths")
+    print(f"wrote {out_dir/'stride.csv'}")
 
 
 if __name__ == "__main__":

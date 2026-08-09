@@ -80,6 +80,21 @@ Two process lessons from that, which apply to any provider:
    the version. "Verified" without those words is not verified.
 10. **If a constraint seems wrong, stop and report.** Do not route around it, do
     not helpfully exceed it. A diagnostic task stays a diagnostic task.
+11. **State the configuration span of every measurement.** A new arm always
+    begins at one configuration — one seed, one dataset, one architecture, one
+    parameter setting — and stays there unless someone remembers to widen it.
+    So the newest result is always the least robust, and the person tracking
+    continuity across tasks is the one who notices, which makes it a matter of
+    memory rather than of process.
+
+    Every report of a measurement therefore states, explicitly:
+
+    > This was measured across N of {generator seeds, split seeds, datasets,
+    > architectures, hyperparameter settings}. It was NOT varied across: ...
+
+    Write the "not varied" line even when it is long. It is the useful half.
+    A result reported without its span is reported as more general than it is,
+    which is the same failure this practice exists to catch, one level up.
 
 ### Definition of done
 
