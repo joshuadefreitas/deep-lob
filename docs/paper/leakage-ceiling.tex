@@ -45,11 +45,11 @@ $s \geq h$. Overlap leakage therefore does not merely diminish as stride
 increases --- it disappears once stride reaches the horizon. We confirm this,
 and quantify its cost: the usable sample shrinks by a factor of $s$.
 
-Separately, we find that the pipeline under study is not reproducible. Six runs
-of identical code on identical data span $67.4\%$ to $74.9\%$, because neither
-the split draw, the weight initialisation nor the batch order is seeded. Any
-model comparison decided by less than roughly seven accuracy points is therefore
-indistinguishable from running the same model twice.
+Separately, we find that the pipeline under study is not reproducible. Neither the
+split draw, the weight initialisation nor the batch order is seeded, so repeated
+runs of identical code on identical data differ materially. A model comparison
+decided by a margin smaller than that spread is indistinguishable from running
+the same model twice.
 
 All figures regenerate from committed scripts.
 \end{abstract}
@@ -60,7 +60,8 @@ Data leakage --- the presence of information in training that would not be
 available at prediction time --- is a well documented cause of overstated
 machine learning results. Kapoor and Narayanan~\cite{kapoor2023} surveyed
 seventeen fields, identified $329$ affected papers, and produced an eight-type
-taxonomy. In financial time series specifically, purging and embargoing are
+taxonomy, and tooling exists to detect some leakage classes
+automatically~\cite{talagala2024}. In financial time series specifically, purging and embargoing are
 established remedies~\cite{lopezdeprado2018}, and the broader problem of
 backtest overfitting has been treated at length~\cite{bailey2014}.
 
@@ -295,14 +296,13 @@ into the training set.
 \begin{figure}[h]
 \centering
 \includegraphics[width=0.72\textwidth]{../figures/fig3-available-vs-taken.pdf}
-\caption{The shaded region is the leak the split makes available. The trained
-network takes none of it at $h=5$ and two thirds at $h=20$.}
+\caption{The shaded region is the leak the split makes available. The trained network takes none of it at $h=5$ and $64\%$ at $h=20$.}
 \label{fig:taken}
 \end{figure}
 
 Measured accuracy can be read as the fraction of available leak a given model
-recovers: none at $h=5$, $41\%$ at $h=10$, $66\%$ at $h=20$. At $h=5$ there are
-$15.6$ points of leak available and this architecture takes none of them.
+recovers: none at $h=5$, $40\%$ at $h=10$, $64\%$ at $h=20$. At $h=5$ there are $15.8$ points of leak available and this architecture takes
+none of them.
 
 The ceiling therefore describes the \emph{exposure} a split geometry creates.
 Whether a particular model converts that exposure into a headline number is a
@@ -341,15 +341,15 @@ sweep. The dotted vertical marks $s=h$.}
 \toprule
 $h$ & Stride & $\rho(s)$ & Ceiling & Oracle & Excess over majority & $n$ windows \\
 \midrule
-20 & 1  & 0.950 & 0.7940 & 0.8117 & $+0.4111$ & 4881 \\
-20 & 2  & 0.900 & 0.7243 & 0.7284 & $+0.3261$ & 2441 \\
-20 & 5  & 0.750 & 0.6059 & 0.6474 & $+0.2462$ & 977 \\
-20 & 10 & 0.500 & 0.4910 & 0.5255 & $+0.1165$ & 489 \\
-20 & 15 & 0.250 & 0.4074 & 0.3894 & $-0.0094$ & 326 \\
-20 & 20 & 0.000 & 0.3368 & 0.3367 & $-0.0837$ & 245 \\
+20 & 1  & 0.950 & 0.8093 & 0.8117 & $+0.4111$ & 4881 \\
+20 & 2  & 0.900 & 0.7359 & 0.7284 & $+0.3261$ & 2441 \\
+20 & 5  & 0.750 & 0.6114 & 0.6474 & $+0.2462$ & 977 \\
+20 & 10  & 0.500 & 0.4903 & 0.5255 & $+0.1165$ & 489 \\
+20 & 15  & 0.250 & 0.4067 & 0.3894 & $-0.0094$ & 326 \\
+20 & 20  & 0.000 & 0.3361 & 0.3367 & $-0.0837$ & 245 \\
 \bottomrule
 \end{tabular}
-\caption{At $s=h$ prediction and measurement agree to four decimal places.}
+\caption{At $s=h$ prediction and measurement agree to within $0.0007$.}
 \end{table}
 
 Two consequences deserve separation.
@@ -400,14 +400,19 @@ property of one realisation.
 \section{Reproducibility of the pipeline under study}
 \label{sec:repro}
 
-Before the study harness introduced seeding, six runs of identical code on
-identical data produced validation accuracies spanning $0.674$ to $0.749$. The
-pipeline seeds neither the split, the weight initialisation, nor the batch
-order.
+The pipeline seeds neither the split draw, the weight initialisation, nor the
+batch order. Repeated runs of identical code on identical data therefore differ.
+In exploratory runs preceding this study we observed validation accuracy spanning
+roughly $0.67$ to $0.75$ for a fixed configuration; those runs predate the
+committed harness and are \emph{not} reproducible from this repository, so the
+figure is reported as an observation rather than as evidence. A seeded
+demonstration of the same effect is the obvious next artifact and is not yet
+present.
 
 Stated separately from the leakage result because it is independent and applies
-more broadly: \textbf{any model comparison decided by less than roughly seven
-accuracy points is indistinguishable from running the same model twice.} This
+more broadly: \textbf{a model comparison decided by a margin smaller than the
+pipeline's own run-to-run spread is indistinguishable from running the same model
+twice.} This
 includes the architecture comparison recorded in the source repository. Seed
 sensitivity of this magnitude is consistent with reports
 elsewhere~\cite{picard2021}.

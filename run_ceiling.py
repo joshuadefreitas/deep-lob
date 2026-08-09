@@ -26,17 +26,27 @@ which rises with the horizon. The probability that two adjacent windows carry
 the SAME label follows from the bivariate normal with that correlation and the
 threshold expressed in units of the h-step return's standard deviation.
 
-A model that memorises its nearest training neighbour and copies that
-neighbour's label therefore scores, in expectation,
+A model that copies the label of its NEAREST training window therefore scores,
+in expectation, the agreement probability averaged over the distance to that
+neighbour. Under a random split at train fraction f the distance d is
+two-sided geometric,
 
-    P(twin in train) * P(adjacent labels agree) + P(no twin) * majority
+    P(d = k) = (1-f)^(2(k-1)) - (1-f)^(2k)
 
-Under a random split with train fraction f, a validation window has an
-immediately adjacent training window with probability 1 - (1-f)^2.
+and a neighbour d windows away shares h - d*stride increments, so
+
+    C = sum_d P(d) * A(max(0, (h - d*stride)/h))
+
+An earlier version of this file used P(twin)*A(adjacent) + P(no twin)*majority,
+which assumes a memoriser with no adjacent twin gives up and guesses. It does
+not; it copies its second-nearest neighbour. That error was invisible at f=0.8
+(0.015) and large at f=0.5 (0.094).
 
 This is an upper bound on what leakage can produce. Nothing about the model
-enters it. If it is correct, an actual nearest-neighbour classifier should
-attain it, and a capacity-limited network should fall short of it.
+enters it. An oracle handed its nearest training neighbour attains it. A
+1-nearest-neighbour classifier in raw FEATURE space does not, and scores near
+chance - Euclidean distance over price-level features finds windows at similar
+price levels rather than temporal twins.
 
 Three estimators are compared against the bound:
 

@@ -1,10 +1,11 @@
 """
 Figures for the write-up, generated from committed results only.
 
-No number is typed into this file. Everything is read from
-results/study/summary.json, results/ceiling/ceiling.json and
-results/stride/stride.json, so a figure cannot drift from the evidence it
-claims to show.
+No DATA value is typed into this file. Every quantity plotted or annotated is
+read from results/study/summary.json, results/ceiling/ceiling.json and
+results/stride/stride.json, so a figure cannot drift from the evidence it claims
+to show. Styling constants - sizes, colours, line widths - are of course
+hardcoded; the distinction is that none of them is a measurement.
 
 Output: docs/figures/*.pdf (vector, for LaTeX) and *.png (for markdown)
 Run:    .venv/bin/python make_figures.py

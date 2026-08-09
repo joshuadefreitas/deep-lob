@@ -44,6 +44,10 @@ from run_stride import ceiling_at_stride  # noqa: E402
 HORIZONS = (5, 10, 20)
 SEEDS = tuple(range(5))
 TOL = 0.04
+# The distance-weighted sum and the old d=1-collapse form differ by ~0.09 at
+# f=0.5 and by only ~0.015 at f=0.8. Any tolerance that admits the latter must
+# reject the former, or the enforcement is decorative.
+TOL_LOW_F = 0.02
 
 
 def _oracle(y: np.ndarray) -> float:
@@ -165,3 +169,47 @@ def test_ceiling_exceeds_what_the_trained_model_achieves() -> None:
             f"h={horizon}: model scored {cnn:.4f} against a ceiling of "
             f"{ceiling:.4f}. A model exceeding the bound means the bound is wrong."
         )
+
+
+@pytest.mark.parametrize("horizon", HORIZONS)
+def test_ceiling_holds_at_low_train_fraction(horizon: int) -> None:
+    """
+    The assertion that actually enforces the distance-weighted derivation.
+
+    An earlier version of analytic_ceiling collapsed every case beyond the
+    adjacent neighbour to the majority class. At f=0.8 that error is only
+    ~0.015 and slips under a 0.04 tolerance, so the rest of this file passes
+    on the wrong algebra - which an independent review demonstrated by
+    swapping the old function back in and watching all tests stay green.
+
+    At f=0.5 a quarter of validation windows have no adjacent training twin,
+    the two forms diverge by ~0.09, and the tolerance below rejects the wrong
+    one. This test is the discriminator; the others are not.
+    """
+    y = _labels(horizon)
+    predicted = analytic_ceiling(horizon, train_frac=0.5)["ceiling"]
+    observed = float(np.mean([
+        oracle_twin_accuracy(sp.train_idx, sp.val_idx, y)
+        for sp in (random_overlap_split(len(y), 0.5, seed=s) for s in SEEDS)
+    ]))
+    assert abs(predicted - observed) < TOL_LOW_F, (
+        f"h={horizon}, f=0.5: closed form {predicted:.4f} vs oracle {observed:.4f} "
+        f"(delta {observed - predicted:+.4f}). At low train fraction the nearest "
+        f"training neighbour is often NOT adjacent; a derivation that ignores "
+        f"that fails here."
+    )
+
+
+@pytest.mark.parametrize("train_frac", (0.5, 0.6, 0.7, 0.8, 0.9))
+def test_ceiling_tracks_the_oracle_across_train_fractions(train_frac: float) -> None:
+    """The error must not grow as f falls - that growth is the signature of the
+    collapse mis-specification, and it is what the review used to find it."""
+    y = _labels(20)
+    predicted = analytic_ceiling(20, train_frac=train_frac)["ceiling"]
+    observed = float(np.mean([
+        oracle_twin_accuracy(sp.train_idx, sp.val_idx, y)
+        for sp in (random_overlap_split(len(y), train_frac, seed=s) for s in SEEDS)
+    ]))
+    assert abs(predicted - observed) < TOL_LOW_F, (
+        f"f={train_frac}: {predicted:.4f} vs {observed:.4f} ({observed-predicted:+.4f})"
+    )
