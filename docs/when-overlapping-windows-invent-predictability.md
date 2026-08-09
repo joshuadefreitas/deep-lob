@@ -238,14 +238,21 @@ sanity check on the derivation.
 
 ## 7. Reproducibility of the pipeline itself
 
-Before the study harness added seeding, six runs of identical code on identical
-data produced validation accuracies spanning **0.674 to 0.749**. `train.py` seeds
-neither the split, the weight initialisation, nor the batch order.
+`train.py` seeds neither the split, the weight initialisation, nor the batch
+order. Six unseeded repetitions of the same configuration — `random_split`, h=20,
+identical data (generator seed 42) — produced validation accuracies spanning
+**0.5036 to 0.7134** (mean 0.6395, sd 0.0830) and all-window accuracies spanning
+**0.5206 to 0.7408** (mean 0.6712, sd 0.0864). The per-run metrics are committed
+in `results/study-multiseed/summary.json` under `unseeded_arm`.
+
+The pre-harness estimate of 0.674 to 0.749 recorded in earlier versions of this
+section was untraceable to committed artifacts; the artifact above supersedes it.
 
 Stated separately from the leakage finding because it is independent and travels
-further: **any model comparison decided by less than roughly seven accuracy points
-is indistinguishable from running the same model twice.** That includes the
-DeepLOB-versus-TCN comparison previously recorded in this repository.
+further: **any model comparison decided by less than roughly sixteen accuracy
+points (two standard deviations of a single unseeded run) is indistinguishable
+from running the same model twice.** That includes the DeepLOB-versus-TCN
+comparison previously recorded in this repository.
 
 Three lines of seeding make the pipeline bit-deterministic. They were never
 written.

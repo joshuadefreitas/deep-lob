@@ -402,12 +402,13 @@ property of one realisation.
 
 The pipeline seeds neither the split draw, the weight initialisation, nor the
 batch order. Repeated runs of identical code on identical data therefore differ.
-In exploratory runs preceding this study we observed validation accuracy spanning
-roughly $0.67$ to $0.75$ for a fixed configuration; those runs predate the
-committed harness and are \emph{not} reproducible from this repository, so the
-figure is reported as an observation rather than as evidence. A seeded
-demonstration of the same effect is the obvious next artifact and is not yet
-present.
+Six unseeded repetitions of one configuration (\texttt{random\_split}, $h=20$,
+generator seed $42$) yield validation accuracies spanning $0.5036$ to $0.7134$
+(mean $0.6395$, sd $0.0830$) and all-window accuracies spanning $0.5206$ to
+$0.7408$ (mean $0.6712$, sd $0.0864$); runs and metrics are committed in
+\texttt{results/study-multiseed/summary.json} under \texttt{unseeded\_arm}. An
+earlier estimate of $0.67$--$0.75$ predated the committed harness and is
+superseded by this artifact.
 
 Stated separately from the leakage result because it is independent and applies
 more broadly: \textbf{a model comparison decided by a margin smaller than the
