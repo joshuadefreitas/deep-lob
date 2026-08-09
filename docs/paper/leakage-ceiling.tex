@@ -34,9 +34,10 @@ by how the validation set was drawn.
 We then derive a closed-form upper bound on the accuracy a given split geometry
 makes available. The bound depends only on the window stride, the label horizon,
 the labelling threshold and the train fraction; no property of the model enters
-it. An oracle memoriser attains the bound to within $1.6$ points at every
-horizon tested, and the bound tracks measurement across all $24$
-(horizon, stride) configurations examined.
+it. An oracle memoriser attains it to within $0.34$ points at every horizon tested,
+and the derivation is verified against $105$ further measurements spanning $20$
+independent generator paths, five window sizes, five thresholds and five train
+fractions.
 
 The derivation is prescriptive. With stride $s$ and horizon $h$ the governing
 correlation is $\rho(s)=\max\!\left(0,(h-s)/h\right)$, which is exactly zero at
@@ -237,16 +238,28 @@ A(h) = \underbrace{\Phi_2(-z,-z)}_{\text{both down}}
      + \underbrace{1 - 2\Phi(z) + \Phi_2(z,z)}_{\text{both up}} .
 \end{equation}
 
-A model that copies the label of its nearest training neighbour therefore scores,
-in expectation,
+A memoriser copies the label of its \emph{nearest} training window, which is not
+always the adjacent one. Under a random split at train fraction $f$, the distance
+$d$ to the nearest training neighbour satisfies
 \begin{equation}
-C(h) = \pi\,A(h) + (1-\pi)\,M(h), \qquad \pi = 1-(1-f)^2,
+\Pr(d > k) = (1-f)^{2k}, \qquad
+\Pr(d = k) = (1-f)^{2(k-1)} - (1-f)^{2k},
+\end{equation}
+and a neighbour $d$ windows away shares $h-d$ of $h$ increments, so
+$\rho_d = \max(0, (h-d)/h)$. The ceiling is the expectation of the agreement
+probability over that distance distribution:
+\begin{equation}
+C(h) = \sum_{d \geq 1} \Pr(d)\, A(\rho_d).
 \label{eq:ceiling}
 \end{equation}
-where $f$ is the train fraction, $\pi$ the probability that a validation window
-has an immediately adjacent training window, and $M(h)$ the majority-class
-share. Nothing about the model appears in~\eqref{eq:ceiling}. It is computable
-before any training run.
+Nothing about the model appears in~\eqref{eq:ceiling}. It is computable before
+any training run.
+
+An earlier version of this derivation collapsed every case beyond $d=1$ to the
+majority class. That is wrong, and diagnosably so: it under-predicted by $0.094$
+at $h=20$, $f=0.5$ --- where a quarter of validation windows have no adjacent
+twin --- with the error decaying monotonically to $0.004$ at $f=0.9$. The
+train-fraction sweep in Section~\ref{sec:robust} was what exposed it.
 
 \subsection{Verification}
 
@@ -261,13 +274,13 @@ whether a learner could locate its twin.
 \toprule
 $h$ & $\rho$ & Ceiling $C(h)$ & Oracle & Error \\
 \midrule
-5  & 0.800 & 0.6884 & 0.6923 & $+0.0039$ \\
-10 & 0.900 & 0.7378 & 0.7513 & $+0.0135$ \\
-20 & 0.950 & 0.7940 & 0.8098 & $+0.0158$ \\
+5  & 0.800 & 0.6896 & 0.6923 & $+0.0027$ \\
+10 & 0.900 & 0.7479 & 0.7513 & $+0.0034$ \\
+20 & 0.950 & 0.8093 & 0.8098 & $+0.0005$ \\
 \bottomrule
 \end{tabular}
-\caption{The closed form predicts the oracle to within $1.6$ points, with no
-fitted parameter.}
+\caption{The closed form predicts the oracle to within $0.34$ points, with no fitted
+parameter.}
 \end{table}
 
 The bound binds only under a random split. Under \texttt{chronological} and
@@ -354,6 +367,35 @@ not remove the trade; it prices it.
 Beyond $s=h$ the memoriser scores \emph{below} baseline, because with
 independent labels copying a neighbour yields $\sum_i p_i^2 < \max_i p_i$. This
 is predicted behaviour and serves as an independent check on the derivation.
+
+\section{Robustness of the derivation}
+\label{sec:robust}
+
+The ceiling contains stride, horizon, threshold, per-step volatility and train
+fraction. It does \emph{not} contain the window size $W$, which is a falsifiable
+prediction: widening the feature window changes what the model sees but not how
+correlated the labels of neighbouring windows are, and the leak lives in the
+labels.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+Sweep & Range & Max $|$error$|$ & Mean $|$error$|$ \\
+\midrule
+Generator path & 20 independent seeds & 0.0208 & 0.0073 \\
+Window size & $W \in \{25,\dots,400\}$ & \textbf{0.0053} & 0.0031 \\
+Threshold & $\theta \in [10^{-4}, 2\times10^{-3}]$ & 0.0223 & 0.0081 \\
+Train fraction & $f \in [0.5, 0.9]$ & 0.0051 & 0.0022 \\
+\bottomrule
+\end{tabular}
+\caption{Closed form against measured oracle, $105$ configurations.}
+\end{table}
+
+A sixteen-fold change in window size moves the oracle by less than $0.006$ while
+the prediction is held fixed. The prediction survives. Twenty independent
+generator paths give a mean absolute error of $0.007$, so the result is not a
+property of one realisation.
 
 \section{Reproducibility of the pipeline under study}
 \label{sec:repro}

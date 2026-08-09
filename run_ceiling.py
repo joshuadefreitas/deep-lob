@@ -119,34 +119,73 @@ def _norm_cdf(z):
     return np.vectorize(lambda v: 0.5 * (1.0 + erf(v / sqrt(2.0))))(z)
 
 
-def analytic_ceiling(horizon: int, train_frac: float = TRAIN_FRAC) -> dict:
-    """Closed-form ceiling on manufactured accuracy for a stride-1 random split."""
-    sd = STEP_SD * np.sqrt(horizon)
-    z = THRESHOLD / sd
-
-    p_flat = float(2.0 * _norm_cdf(z) - 1.0)
-    p_up = p_down = (1.0 - p_flat) / 2.0
-    majority = max(p_flat, p_up)
-
-    rho = (horizon - 1) / horizon
+def _agreement_at_distance(z: float, rho: float, p_flat: float) -> float:
+    """P(two windows d apart carry the same label), given their label correlation."""
+    if rho <= 0.0:
+        p_up = (1.0 - p_flat) / 2.0
+        return p_flat**2 + 2.0 * p_up**2
     p_dd = _bivariate_normal_cdf(-z, -z, rho)
     p_le = _bivariate_normal_cdf(z, z, rho)
     p_ff = p_le - 2.0 * _bivariate_normal_cdf(-z, z, rho) + p_dd
     p_uu = 1.0 - 2.0 * float(_norm_cdf(z)) + p_le
-    agree = p_ff + p_dd + p_uu
+    return p_ff + p_dd + p_uu
 
-    p_twin = 1.0 - (1.0 - train_frac) ** 2
-    ceiling = p_twin * agree + (1.0 - p_twin) * majority
 
+def analytic_ceiling(horizon: int, train_frac: float = TRAIN_FRAC,
+                     stride: int = 1, threshold: float = THRESHOLD) -> dict:
+    """
+    Closed-form ceiling on manufactured accuracy for a random split.
+
+    A memoriser copies the label of its NEAREST training window, which is not
+    always the adjacent one. Under a random split at train fraction f, the
+    distance d to the nearest training neighbour has
+
+        P(d > k)   = (1-f)^(2k)          both sides validation out to k
+        P(d = k)   = (1-f)^(2(k-1)) - (1-f)^(2k)
+
+    and a neighbour d windows away shares h - d*stride of h increments, so its
+    label correlation is rho_d = max(0, (h - d*stride)/h). The ceiling is the
+    expectation of the agreement probability over that distance distribution:
+
+        C = sum_d P(d) * A(rho_d)
+
+    An earlier version collapsed everything beyond d=1 to the majority class.
+    That under-predicted badly at low train fractions - by 0.094 at h=20,
+    f=0.5, where a quarter of validation windows have no adjacent twin - and
+    the error vanished as f rose, which is the signature of exactly this
+    mis-specification.
+    """
+    sd = STEP_SD * np.sqrt(horizon)
+    z = threshold / sd
+    p_flat = float(2.0 * _norm_cdf(z) - 1.0)
+    p_up = p_down = (1.0 - p_flat) / 2.0
+    majority = max(p_flat, p_up)
+
+    q = 1.0 - train_frac
+    ceiling = 0.0
+    tail = 1.0
+    distances = {}
+    d = 1
+    while tail > 1e-9 and d < 2000:
+        p_d = q ** (2 * (d - 1)) - q ** (2 * d)
+        rho_d = max(0.0, (horizon - d * stride) / horizon)
+        ceiling += p_d * _agreement_at_distance(z, rho_d, p_flat)
+        distances[d] = p_d
+        tail -= p_d
+        d += 1
+    ceiling += tail * _agreement_at_distance(z, 0.0, p_flat)
+
+    rho1 = max(0.0, (horizon - stride) / horizon)
     return {
         "horizon": horizon,
+        "stride": stride,
         "label_sd": sd,
         "z": z,
         "p_flat": p_flat,
         "majority_predicted": majority,
-        "rho_adjacent": rho,
-        "p_adjacent_agree": agree,
-        "p_has_training_twin": p_twin,
+        "rho_adjacent": rho1,
+        "p_adjacent_agree": _agreement_at_distance(z, rho1, p_flat),
+        "p_has_training_twin": 1.0 - (1.0 - train_frac) ** 2,
         "ceiling": ceiling,
     }
 

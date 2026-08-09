@@ -48,6 +48,7 @@ from deep_lob.data import build_lob_windows, load_raw_lob  # noqa: E402
 from deep_lob.simulator import save_simulated_lob_csv  # noqa: E402
 from deep_lob.splits import random_overlap_split  # noqa: E402
 from run_ceiling import (  # noqa: E402
+    analytic_ceiling,
     STEP_SD,
     THRESHOLD,
     TRAIN_FRAC,
@@ -66,32 +67,19 @@ SPLIT_SEEDS = tuple(range(10))
 
 
 def ceiling_at_stride(horizon: int, stride: int, train_frac: float = TRAIN_FRAC) -> dict:
-    """Closed-form ceiling with the stride-generalised correlation."""
-    sd = STEP_SD * np.sqrt(horizon)
-    z = THRESHOLD / sd
+    """
+    Thin wrapper over run_ceiling.analytic_ceiling.
 
-    p_flat = float(2.0 * _norm_cdf(z) - 1.0)
-    majority = max(p_flat, (1.0 - p_flat) / 2.0)
-
-    rho = max(0.0, (horizon - stride) / horizon)
-
-    if rho <= 0.0:
-        # independent labels: agreement is chance under the marginal distribution
-        p_up = p_down = (1.0 - p_flat) / 2.0
-        agree = p_flat**2 + p_up**2 + p_down**2
-    else:
-        p_dd = _bivariate_normal_cdf(-z, -z, rho)
-        p_le = _bivariate_normal_cdf(z, z, rho)
-        p_ff = p_le - 2.0 * _bivariate_normal_cdf(-z, z, rho) + p_dd
-        p_uu = 1.0 - 2.0 * float(_norm_cdf(z)) + p_le
-        agree = p_ff + p_dd + p_uu
-
-    p_twin = 1.0 - (1.0 - train_frac) ** 2
+    This module used to carry its own copy of the ceiling algebra. It now
+    defers, so the repository has exactly one derivation and the two scripts
+    cannot drift apart.
+    """
+    a = analytic_ceiling(horizon, train_frac=train_frac, stride=stride)
     return {
-        "rho": rho,
-        "p_adjacent_agree": agree,
-        "majority_predicted": majority,
-        "ceiling": p_twin * agree + (1.0 - p_twin) * majority,
+        "rho": a["rho_adjacent"],
+        "p_adjacent_agree": a["p_adjacent_agree"],
+        "majority_predicted": a["majority_predicted"],
+        "ceiling": a["ceiling"],
     }
 
 
