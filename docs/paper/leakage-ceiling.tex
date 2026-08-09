@@ -216,6 +216,43 @@ guarantees and a time cut prevents.
 largest dispersion in the table --- standard deviation $0.0775$ against $0.0421$
 for its purged counterpart, with individual seeds spanning $0.468$ to $0.751$.
 
+\subsection{Every generator path, separately}
+
+The table above is twenty split seeds on one random-walk realisation. To check
+that the conclusion is not a property of that realisation, the full study was
+repeated across five independent generator paths --- $900$ runs. Excess over
+baseline, per path:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llrrrrr}
+\toprule
+Protocol & $h$ & Path 0 & Path 1 & Path 2 & Path 3 & Path 4 \\
+\midrule
+\texttt{random\_split} & 5 & $-0.0070$ & $-0.0049$ & $-0.0113$ & $-0.0127$ & $+0.0054$ \\
+\texttt{random\_split} & 10 & $+0.1497$ & $+0.1663$ & $+0.1338$ & $+0.1617$ & $+0.1828$ \\
+\texttt{random\_split} & 20 & $+0.2603$ & $+0.2682$ & $+0.2671$ & $+0.2651$ & $+0.2818$ \\
+\texttt{chronological} & 5 & $-0.0494$ & $-0.0522$ & $-0.0686$ & $-0.0752$ & $-0.0827$ \\
+\texttt{chronological} & 10 & $-0.0649$ & $-0.0342$ & $-0.0829$ & $-0.0972$ & $-0.0913$ \\
+\texttt{chronological} & 20 & $-0.1076$ & $-0.0669$ & $-0.0623$ & $-0.0474$ & $-0.1295$ \\
+\texttt{purged\_embargoed} & 5 & $-0.0457$ & $-0.0357$ & $-0.0817$ & $-0.0791$ & $-0.0609$ \\
+\texttt{purged\_embargoed} & 10 & $-0.0808$ & $-0.0380$ & $-0.0975$ & $-0.1018$ & $-0.1035$ \\
+\texttt{purged\_embargoed} & 20 & $-0.1027$ & $-0.0904$ & $-0.0503$ & $-0.0327$ & $-0.1464$ \\
+\bottomrule
+\end{tabular}
+\caption{Excess over the majority baseline, by generator path. Every honest cell
+is negative on every path; \texttt{random\_split} is positive on every path at
+$h \geq 10$. No path contradicts the conclusion.}
+\end{table}
+
+The across-path standard deviation of the excess at $h=20$ under
+\texttt{random\_split} is $0.008$, against a within-path standard deviation
+across model seeds of $0.078$. The effect is an order of magnitude more stable
+across data realisations than across initialisations, which is consistent with
+it being a property of the evaluation geometry rather than of any particular
+fitted model.
+
 \section{The ceiling}
 \label{sec:ceiling}
 
