@@ -92,7 +92,7 @@ def fig_excess_over_baseline() -> None:
 def fig_stride() -> None:
     """The remedy: predicted ceiling and measured oracle collapse together."""
     rows = json.loads((ROOT / "results/stride/stride.json").read_text())
-    fig, axes = plt.subplots(1, 3, figsize=(7.6, 2.6), sharey=True)
+    fig, axes = plt.subplots(1, 3, figsize=(7.6, 2.8), sharey=True)
 
     for ax, h in zip(axes, HORIZONS):
         sel = sorted([r for r in rows if r["horizon"] == h], key=lambda r: r["stride"])
@@ -104,8 +104,9 @@ def fig_stride() -> None:
         ax.plot(s, [r["majority"] for r in sel], "--", color="#7f8c8d", lw=1.0,
                 label="majority baseline")
         ax.axvline(h, color="#999", lw=0.8, ls=":")
-        ax.annotate("stride = horizon", xy=(h, 0.86), fontsize=6.5, rotation=90,
-                    ha="right", va="top", color="#666")
+        # axis-fraction coords, so it cannot fall outside the drawn range
+        ax.annotate("stride = horizon", xy=(h, 0.97), xycoords=("data", "axes fraction"),
+                    fontsize=6.5, rotation=90, ha="right", va="top", color="#666")
         ax.set_title(f"horizon = {h}", fontsize=9)
         ax.set_xlabel("stride")
         ax.set_xscale("log")
@@ -113,7 +114,12 @@ def fig_stride() -> None:
         ax.get_xaxis().set_major_formatter(matplotlib.ticker.ScalarFormatter())
 
     axes[0].set_ylabel("accuracy")
-    axes[0].legend(frameon=False, fontsize=7, loc="lower left")
+    # One legend for the figure, below the panels: inside any panel it collides
+    # with the ceiling curve, which is the line the reader most needs to see.
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, frameon=False, fontsize=8, ncol=3,
+               loc="upper center", bbox_to_anchor=(0.5, -0.02))
+    fig.subplots_adjust(bottom=0.28)
     fig.suptitle("Leakage is predictable, and it vanishes once stride reaches the horizon",
                  fontsize=9.5, y=1.04)
     save(fig, "fig2-stride")
@@ -141,7 +147,9 @@ def fig_available_vs_taken() -> None:
     for i, h in enumerate(HORIZONS):
         frac = (cnn[i] - base[i]) / (top[i] - base[i])
         ax.annotate(f"{frac:.0%} taken" if frac > 0 else "none taken",
-                    xy=(i, (cnn[i] + base[i]) / 2), fontsize=7, ha="center",
+                    xy=(i, (cnn[i] + base[i]) / 2), fontsize=7,
+                    ha="left" if i == 0 else "center",
+                    xytext=(6 if i == 0 else 0, 0), textcoords="offset points",
                     color="#2c3e50")
 
     ax.set_xticks(list(xs))
@@ -149,7 +157,10 @@ def fig_available_vs_taken() -> None:
     ax.set_ylabel("accuracy")
     ax.set_title("How much leak exists, and how much a model actually takes",
                  fontsize=9, pad=8)
-    ax.legend(frameon=False, fontsize=7.5, loc="upper left")
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, frameon=False, fontsize=7.5, ncol=2,
+               loc="upper center", bbox_to_anchor=(0.5, -0.02))
+    fig.subplots_adjust(bottom=0.26)
     save(fig, "fig3-available-vs-taken")
 
 
