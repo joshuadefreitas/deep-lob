@@ -4,15 +4,16 @@ _Repository-specific rules go above the shared block._
 
 
 <!-- BEGIN SHARED PROTOCOL v1 -->
-<!-- Synced from agent-protocol/PROTOCOL.md. Do not edit this block in place —
-     edit the source and re-run agent-protocol/sync.sh, or your change is lost. -->
+<!-- Synced from shared/agent-protocol/PROTOCOL.md. Do not edit this block in
+     place — edit the source and re-run shared/agent-protocol/sync.sh, or your
+     change is lost. -->
 
 ## Shared Protocol
 
 This block is identical in every repository. Anything above or below it is
 repository-specific.
 
-The evidence standard it serves is `STANDARD.md` at the workspace root.
+The evidence standard it serves is `shared/standards/STANDARD.md`.
 
 ### The loop
 
@@ -95,6 +96,17 @@ Two process lessons from that, which apply to any provider:
     Write the "not varied" line even when it is long. It is the useful half.
     A result reported without its span is reported as more general than it is,
     which is the same failure this practice exists to catch, one level up.
+
+### Parallel work
+
+- Parallel work across independent repositories is expected.
+- One bounded unit owns a worktree at a time.
+- Parallel units inside one repository use separate worktrees or branches and
+  declare their integration order.
+- Never treat another agent's dirty worktree as disposable or implicitly in
+  scope.
+- Cross-project changes are committed and verified at each project boundary;
+  untracked files and chat history are not integration mechanisms.
 
 ### Definition of done
 
