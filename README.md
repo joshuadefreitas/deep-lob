@@ -64,3 +64,17 @@ The generated report is intentionally ignored by Git. It is evidence for the exa
 - It does not treat a model comparison as meaningful until it uses a documented temporal split and train-only transformations.
 
 See [docs/README.md](docs/README.md) for architecture, data, decisions, references, and legacy context.
+
+## Related work
+
+Joshua de Freitas — data engineer, Madrid. Independent research alongside
+that work.
+
+- [joshuadefreitas.github.io](https://joshuadefreitas.github.io) — published
+  studies, tools, and findings.
+- [lathilda.com](https://lathilda.com) — Lathilda, a laboratory building
+  instruments for data that has outgrown the tools built to look at it.
+
+The disposition in this repository is the one applied across all of it:
+state what a result does not establish, and treat a measurement as unproven
+until something independent has tried to break it.
